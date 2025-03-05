@@ -89,12 +89,13 @@ def analyze_low_matching(resume_text, job_description):
     """
     try:
         response = model.generate_content(prompt)
+        # Store the full API response for display in the UI
+        full_response = response.text
+        
+        # Extract reasons and suggestions for structured display
         reasons_and_suggestions = response.text.split('\n')
         reasons = [line for line in reasons_and_suggestions if 'Reason:' in line]
         suggestions = [line for line in reasons_and_suggestions if 'Suggestion:' in line]
-        
-        # Log the response for debugging
-        print("API Response:", response.text)
         
         # Fallback content if API response is empty
         if not reasons:
@@ -107,13 +108,151 @@ def analyze_low_matching(resume_text, job_description):
         
     except Exception as e:
         print("Error during API call:", e)
+        full_response = "Error in generating analysis."
         reasons = ["Error in generating reasons."]
         suggestions = ["Error in generating suggestions."]
     
-    return reasons, suggestions
+    return reasons, suggestions, full_response
 
 def batch_processing_ui():
     st.header("Batch Processing")
+    
+    # Add super styling to the page
+    st.markdown("""
+    <style>
+        /* Main styling */
+        .main {
+            background-color: #f8f9fa;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        /* Header styling */
+        h1, h2, h3, h4 {
+            color: #2c3e50;
+            font-weight: 600;
+        }
+        
+        h1 {
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+            margin-bottom: 30px;
+        }
+        
+        /* Resume card styling */
+        .resume-card {
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            background-color: white;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        
+        .resume-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 6px 12px rgba(0,0,0,0.15);
+        }
+        
+        .resume-title {
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #2c3e50;
+        }
+        
+        /* Score badge styling */
+        .score-badge {
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-weight: bold;
+            display: inline-block;
+            margin-left: 10px;
+            font-size: 14px;
+        }
+        
+        .high-match {
+            background-color: #27ae60;
+            color: white;
+        }
+        
+        .medium-match {
+            background-color: #f39c12;
+            color: white;
+        }
+        
+        .low-match {
+            background-color: #e74c3c;
+            color: white;
+        }
+        
+        .classification {
+            font-style: italic;
+            margin-top: 8px;
+            color: #7f8c8d;
+        }
+        
+        /* Analysis section styling */
+        .analysis-section {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #ecf0f1;
+        }
+        
+        .analysis-section strong {
+            color: #3498db;
+            font-size: 16px;
+        }
+        
+        /* Button styling */
+        .stButton>button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 8px 16px;
+            font-weight: bold;
+            transition: background-color 0.3s ease;
+        }
+        
+        .stButton>button:hover {
+            background-color: #2980b9;
+        }
+        
+        /* File uploader styling */
+        .stFileUploader>div>div {
+            border: 2px dashed #3498db;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+        }
+        
+        /* Text area styling */
+        .stTextArea>div>div>textarea {
+            border: 1px solid #bdc3c7;
+            border-radius: 4px;
+            padding: 10px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        /* Expander styling */
+        .streamlit-expanderHeader {
+            background-color: #f5f7fa;
+            border-radius: 4px;
+            padding: 10px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        
+        .streamlit-expanderContent {
+            background-color: white;
+            border: 1px solid #ecf0f1;
+            border-radius: 0 0 4px 4px;
+            padding: 15px;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+    
     uploaded_files = st.file_uploader("Upload resumes", type=["pdf", "docx"], accept_multiple_files=True)
     job_description = st.text_area("Paste the job description here")
     
@@ -136,47 +275,339 @@ def batch_processing_ui():
             all_resumes.sort(key=lambda x: x['score'], reverse=True)
             
             st.write("## Resume Analysis")
+
             for idx, resume in enumerate(all_resumes, start=1):
                 if resume['score'] > 8:
                     classification = "Highly Matching"
+                    badge_class = "high-match"
                 elif resume['score'] > 5:
                     classification = "Medium Matching"
+                    badge_class = "medium-match"
                 else:
                     classification = "Low Matching"
+                    badge_class = "low-match"
                 
-                st.markdown(f"### {idx}. {resume['name']}")
-                st.markdown(f"**Match Score:** {resume['score']:.2f} - **{classification}**")
+                # Enhanced display with score
+                st.markdown(f"""
+                <div class="resume-card">
+                    <div class="resume-title">
+                        {idx}. {resume['name']} 
+                        <span class="score-badge {badge_class}">Score: {resume['score']:.2f}</span>
+                    </div>
+                    <div class="classification">{classification}</div>
+                </div>
+                """, unsafe_allow_html=True)
                 
-                if classification in ["Low Matching", "Medium Matching"]:
-                    st.markdown("**Reasons for Match Score:**")
-                    reasons, suggestions = analyze_low_matching(resume['text'], job_description)
-                    for reason in reasons:
-                        st.markdown(f"{reason}")
-                    st.markdown("**Suggestions for Improvement:**")
-                    for suggestion in suggestions:
-                        st.markdown(f"{suggestion}")
-                    optimized_resume = optimize_resume(resume['text'], job_description)
-                    st.markdown("**Optimized Resume:**")
-                    st.markdown(optimized_resume)
+                with st.expander("Show Analysis"):
+                    if classification in ["Low Matching", "Medium Matching"]:
+                        st.markdown("<div class='analysis-section'><strong>Reasons for Match Score:</strong></div>", unsafe_allow_html=True)
+                        reasons, suggestions, full_response = analyze_low_matching(resume['text'], job_description)
+                        for reason in reasons:
+                            st.markdown(f"{reason}")
+                        st.markdown("<div class='analysis-section'><strong>Suggestions for Improvement:</strong></div>", unsafe_allow_html=True)
+                        for suggestion in suggestions:
+                            st.markdown(f"{suggestion}")
+                        optimized_resume = optimize_resume(resume['text'], job_description)
+                        st.markdown("<div class='analysis-section'><strong>Optimized Resume:</strong></div>", unsafe_allow_html=True)
+                        st.markdown(optimized_resume)
+                        st.markdown("<div class='analysis-section'><strong>Full API Response:</strong></div>", unsafe_allow_html=True)
+                        st.markdown(f"{full_response}")
+                
+                # Log to terminal for debugging
+                print(f"Resume: {resume['name']}, Score: {resume['score']}, Classification: {classification}")
 
 def single_resume_optimization_ui():
     st.header("Single Resume Optimization")
-    resume_file = st.file_uploader("Upload a single resume", type=["pdf", "docx"], key="single_resume")
-    single_job_description = st.text_area("Paste the job description here", key="single_job")
     
-    if resume_file and single_job_description:
-        resume_text = upload_and_parse_resume(resume_file)
+    # Add super styling to the page (same as batch processing)
+    st.markdown("""
+    <style>
+        /* Main styling */
+        .main {
+            background-color: #f8f9fa;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        /* Header styling */
+        h1, h2, h3, h4 {
+            color: #2c3e50;
+            font-weight: 600;
+        }
+        
+        h1 {
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+            margin-bottom: 30px;
+        }
+        
+        /* Resume card styling */
+        .resume-card {
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            background-color: white;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        
+        .resume-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 6px 12px rgba(0,0,0,0.15);
+        }
+        
+        .resume-title {
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #2c3e50;
+        }
+        
+        /* Score badge styling */
+        .score-badge {
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-weight: bold;
+            display: inline-block;
+            margin-left: 10px;
+            font-size: 14px;
+        }
+        
+        .high-match {
+            background-color: #27ae60;
+            color: white;
+        }
+        
+        .medium-match {
+            background-color: #f39c12;
+            color: white;
+        }
+        
+        .low-match {
+            background-color: #e74c3c;
+            color: white;
+        }
+        
+        .classification {
+            font-style: italic;
+            margin-top: 8px;
+            color: #7f8c8d;
+        }
+        
+        /* Analysis section styling */
+        .analysis-section {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #ecf0f1;
+        }
+        
+        .analysis-section strong {
+            color: #3498db;
+            font-size: 16px;
+        }
+        
+        /* Button styling */
+        .stButton>button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 8px 16px;
+            font-weight: bold;
+            transition: background-color 0.3s ease;
+        }
+        
+        .stButton>button:hover {
+            background-color: #2980b9;
+        }
+        
+        /* File uploader styling */
+        .stFileUploader>div>div {
+            border: 2px dashed #3498db;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+        }
+        
+        /* Text area styling */
+        .stTextArea>div>div>textarea {
+            border: 1px solid #bdc3c7;
+            border-radius: 4px;
+            padding: 10px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        /* Expander styling */
+        .streamlit-expanderHeader {
+            background-color: #f5f7fa;
+            border-radius: 4px;
+            padding: 10px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        
+        .streamlit-expanderContent {
+            background-color: white;
+            border: 1px solid #ecf0f1;
+            border-radius: 0 0 4px 4px;
+            padding: 15px;
+        }
+        
+        /* Results container styling */
+        .results-container {
+            background-color: white;
+            border-radius: 8px;
+            padding: 25px;
+            margin-top: 30px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        }
+        
+        /* Optimization section styling */
+        .optimization-section {
+            background-color: #f1f9ff;
+            border-left: 4px solid #3498db;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 0 8px 8px 0;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    uploaded_file = st.file_uploader("Upload a resume", type=["pdf", "docx"])
+    job_description = st.text_area("Paste the job description here")
+    
+    if uploaded_file and job_description:
+        resume_text = upload_and_parse_resume(uploaded_file)
         if resume_text:
-            match_score = calculate_match_score(resume_text, single_job_description)
-            optimized_resume = optimize_resume(resume_text, single_job_description)
+            score = calculate_match_score(resume_text, job_description)
             
-            st.markdown(f"**Match Score:** {match_score:.2f}")
-            st.markdown("## Optimized Resume")
-            st.markdown(optimized_resume)
+            # Determine classification based on score
+            if score > 8:
+                classification = "Highly Matching"
+                badge_class = "high-match"
+            elif score > 5:
+                classification = "Medium Matching"
+                badge_class = "medium-match"
+            else:
+                classification = "Low Matching"
+                badge_class = "low-match"
+            
+            # Display results in an enhanced UI
+            st.markdown("""
+            <div class="results-container">
+                <h2>Resume Analysis Results</h2>
+            """, unsafe_allow_html=True)
+            
+            # Display score with badge
+            st.markdown(f"""
+                <div class="resume-title">
+                    {uploaded_file.name} 
+                    <span class="score-badge {badge_class}">Score: {score:.2f}</span>
+                </div>
+                <div class="classification">{classification}</div>
+            """, unsafe_allow_html=True)
+            
+            # If medium or low matching, analyze and provide suggestions
+            if classification in ["Low Matching", "Medium Matching"]:
+                reasons, suggestions, full_response = analyze_low_matching(resume_text, job_description)
+                
+                st.markdown("<div class='analysis-section'><strong>Reasons for Match Score:</strong></div>", unsafe_allow_html=True)
+                for reason in reasons:
+                    st.markdown(f"<li>{reason}</li>", unsafe_allow_html=True)
+                
+                st.markdown("<div class='analysis-section'><strong>Suggestions for Improvement:</strong></div>", unsafe_allow_html=True)
+                for suggestion in suggestions:
+                    st.markdown(f"<li>{suggestion}</li>", unsafe_allow_html=True)
+                
+                # Display full API response
+                with st.expander("View Full Analysis"):
+                    st.markdown(f"<pre style='white-space: pre-wrap; word-break: break-word;'>{full_response}</pre>", unsafe_allow_html=True)
+            
+            # Display optimized resume
+            optimized_resume = optimize_resume(resume_text, job_description)
+            st.markdown("<div class='analysis-section'><strong>Optimized Resume:</strong></div>", unsafe_allow_html=True)
+            st.markdown(f"""
+            <div class="optimization-section">
+                {optimized_resume}
+            </div>
+            """, unsafe_allow_html=True)
+            
+            st.markdown("</div>", unsafe_allow_html=True)  # Close results container
+            
+            # Log to terminal for debugging
+            print(f"Resume: {uploaded_file.name}, Score: {score}, Classification: {classification}")
 
 def main_ui():
-    st.title("Resume Optimization and Classification with RAG using Gemini API")
+    # Add app title and description with enhanced styling
+    st.markdown("""
+    <style>
+        /* App title and header styling */
+        .app-header {
+            text-align: center;
+            padding: 30px 0;
+            background: linear-gradient(135deg, #2980b9, #3498db);
+            color: white;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+        }
+        
+        .app-title {
+            font-size: 36px;
+            font-weight: 700;
+            margin-bottom: 10px;
+            text-shadow: 1px 1px 3px rgba(0,0,0,0.2);
+        }
+        
+        .app-description {
+            font-size: 18px;
+            opacity: 0.9;
+            max-width: 800px;
+            margin: 0 auto;
+            line-height: 1.5;
+        }
+        
+        /* Tab styling */
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 10px;
+        }
+        
+        .stTabs [data-baseweb="tab"] {
+            background-color: #f8f9fa;
+            border-radius: 6px 6px 0 0;
+            padding: 10px 20px;
+            font-weight: 600;
+            color: #2c3e50;
+            border: 1px solid #e0e0e0;
+            border-bottom: none;
+        }
+        
+        .stTabs [aria-selected="true"] {
+            background-color: white !important;
+            color: #3498db !important;
+            border-top: 3px solid #3498db !important;
+        }
+        
+        /* Footer styling */
+        .footer {
+            text-align: center;
+            padding: 20px 0;
+            margin-top: 50px;
+            border-top: 1px solid #ecf0f1;
+            color: #7f8c8d;
+            font-size: 14px;
+        }
+    </style>
     
+    <div class="app-header">
+        <div class="app-title">Resume Rank & Optimization</div>
+        <div class="app-description">
+            Upload resumes, compare them with job descriptions, and get AI-powered optimization suggestions to improve your chances of landing your dream job.
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Create tabs
     tab1, tab2 = st.tabs(["Batch Processing", "Single Resume Optimization"])
     
     with tab1:
@@ -184,6 +615,13 @@ def main_ui():
     
     with tab2:
         single_resume_optimization_ui()
+    
+    # Add footer
+    st.markdown("""
+    <div class="footer">
+        Resume Rank & Optimization Tool © 2023 | Powered by AI
+    </div>
+    """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main_ui()
