@@ -422,8 +422,8 @@ def calculate_match_score(resume_text, job_description):
             "Achievement Relevance": initial_score * 100
         }
         
-        keywords_found = list(common_keywords)
-        keywords_missing = list(missing_keywords)
+    keywords_found = list(common_keywords)
+    keywords_missing = list(missing_keywords)
     
     # Convert refined score to percentage for display
     percentage_match = refined_score * 100
@@ -786,13 +786,13 @@ def batch_processing_ui():
                         # Determine classification
                         if match_score > 75:
                             classification = "High Match"
-                    badge_class = "high-match"
+                            badge_class = "high-match"
                         elif match_score > 60:
                             classification = "Medium Match" 
-                        badge_class = "medium-match"
-                else:
+                            badge_class = "medium-match"
+                        else:
                             classification = "Low Match"
-                    badge_class = "low-match"
+                            badge_class = "low-match"
                 
                         # Add to results
                         resume_data.append({
@@ -836,69 +836,69 @@ def batch_processing_ui():
                         """, unsafe_allow_html=True)
                 
                     # Expandable section for details
-                    with st.expander(f"View Details for {resume['file'].name}"):
-                        # Generate optimized resume and display it first
-                        st.markdown('<div class="section-header">Optimized Resume</div>', unsafe_allow_html=True)
-                        optimized_resume = optimize_resume(resume['text'], job_description)
-                        formatted_resume = format_optimized_resume(optimized_resume)
-                        st.markdown(formatted_resume, unsafe_allow_html=True)
-                        
-                        # Add download buttons
-                        # Strip HTML tags for plain text version
-                        plain_optimized_resume = strip_html_tags(formatted_resume)
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            st.download_button(
-                                f"Download {resume['file'].name} (HTML)",
-                                formatted_resume,
-                                file_name=f"optimized_{resume['file'].name}.html",
-                                mime="text/html"
-                            )
-                        with col2:
-                            st.download_button(
-                                f"Download {resume['file'].name} (Text)",
-                                plain_optimized_resume,
-                                file_name=f"optimized_{resume['file'].name}.txt",
-                                mime="text/plain"
-                            )
-                        
-                        # Display match scores in card format
-                        display_match_scores(resume['enhanced_scores'])
-                        
-                        # Display Keywords found
-                        st.markdown('<div class="section-header">Keywords Found</div>', unsafe_allow_html=True)
-                        if resume['keywords_found']:
-                            keyword_html = "<div class='analysis-box'>"
-                            for kw in resume['keywords_found']:
-                                keyword_html += f"<span style='display:inline-block; background-color:#1e8449; color:white; margin:3px; padding:5px 10px; border-radius:15px;'>{kw}</span>"
-                            keyword_html += "</div>"
-                            st.markdown(keyword_html, unsafe_allow_html=True)
-                        else:
-                            st.warning("No matching keywords found.")
-                        
-                        # Display Keywords missing
-                        st.markdown('<div class="section-header">Keywords Missing</div>', unsafe_allow_html=True)
-                        if resume['keywords_missing']:
-                            keyword_html = "<div class='analysis-box'>"
-                            for kw in resume['keywords_missing']:
-                                keyword_html += f"<span style='display:inline-block; background-color:#c0392b; color:white; margin:3px; padding:5px 10px; border-radius:15px;'>{kw}</span>"
-                            keyword_html += "</div>"
-                            st.markdown(keyword_html, unsafe_allow_html=True)
-                        else:
-                            st.success("No missing keywords!")
-                        
-                        # Generate and display analysis for low-matching resumes
-                        if resume['match_score'] < 75:
-                            st.markdown('<div class="section-header">Improvement Analysis</div>', unsafe_allow_html=True)
-                            analysis = analyze_low_matching(resume['text'], job_description)
-                            st.markdown(format_analysis(analysis), unsafe_allow_html=True)
+                with st.expander(f"View Details for {resume['file'].name}"):
+                    # Generate optimized resume and display it first
+                    st.markdown('<div class="section-header">Optimized Resume</div>', unsafe_allow_html=True)
+                    optimized_resume = optimize_resume(resume['text'], job_description)
+                    formatted_resume = format_optimized_resume(optimized_resume)
+                    st.markdown(formatted_resume, unsafe_allow_html=True)
+                    
+                    # Add download buttons
+                    # Strip HTML tags for plain text version
+                    plain_optimized_resume = strip_html_tags(formatted_resume)
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.download_button(
+                            f"Download {resume['file'].name} (HTML)",
+                            formatted_resume,
+                            file_name=f"optimized_{resume['file'].name}.html",
+                            mime="text/html"
+                        )
+                    with col2:
+                        st.download_button(
+                            f"Download {resume['file'].name} (Text)",
+                            plain_optimized_resume,
+                            file_name=f"optimized_{resume['file'].name}.txt",
+                            mime="text/plain"
+                        )
+                    
+                    # Display match scores in card format
+                    display_match_scores(resume['enhanced_scores'])
+                    
+                    # Display Keywords found
+                    st.markdown('<div class="section-header">Keywords Found</div>', unsafe_allow_html=True)
+                    if resume['keywords_found']:
+                        keyword_html = "<div class='analysis-box'>"
+                        for kw in resume['keywords_found']:
+                            keyword_html += f"<span style='display:inline-block; background-color:#1e8449; color:white; margin:3px; padding:5px 10px; border-radius:15px;'>{kw}</span>"
+                        keyword_html += "</div>"
+                        st.markdown(keyword_html, unsafe_allow_html=True)
+                    else:
+                        st.warning("No matching keywords found.")
+                    
+                    # Display Keywords missing
+                    st.markdown('<div class="section-header">Keywords Missing</div>', unsafe_allow_html=True)
+                    if resume['keywords_missing']:
+                        keyword_html = "<div class='analysis-box'>"
+                        for kw in resume['keywords_missing']:
+                            keyword_html += f"<span style='display:inline-block; background-color:#c0392b; color:white; margin:3px; padding:5px 10px; border-radius:15px;'>{kw}</span>"
+                        keyword_html += "</div>"
+                        st.markdown(keyword_html, unsafe_allow_html=True)
+                    else:
+                        st.success("No missing keywords!")
+                    
+                    # Generate and display analysis for low-matching resumes
+                    if resume['match_score'] < 75:
+                        st.markdown('<div class="section-header">Improvement Analysis</div>', unsafe_allow_html=True)
+                        analysis = analyze_low_matching(resume['text'], job_description)
+                        st.markdown(format_analysis(analysis), unsafe_allow_html=True)
             else:
                 st.error("No valid resumes were processed.")
             
 def single_resume_optimization_ui():
     """UI for optimizing a single resume against a job description."""
     # Add dark theme and styling
-            st.markdown("""
+    st.markdown("""
     <style>
     .analysis-box {
         background-color: #1E1E1E;
@@ -1003,16 +1003,16 @@ def single_resume_optimization_ui():
             
             with tabs[1]:
                 # Create score visualization
-            score_color = "#4CAF50" if match_score >= 75 else "#FFC107" if match_score >= 60 else "#F44336"
-            st.markdown(
-                f"""
-                <div style='text-align:center; margin:20px 0;'>
-                    <p style='font-size:18px; color:#FFFFFF;'>Your Resume Match Score</p>
-                    <div style='font-size:48px; font-weight:bold; color:{score_color};'>{match_score:.1f}%</div>
-            </div>
-                """, 
-                unsafe_allow_html=True
-            )
+                score_color = "#4CAF50" if match_score >= 75 else "#FFC107" if match_score >= 60 else "#F44336"
+                st.markdown(
+                    f"""
+                    <div style='text-align:center; margin:20px 0;'>
+                        <p style='font-size:18px; color:#FFFFFF;'>Your Resume Match Score</p>
+                        <div style='font-size:48px; font-weight:bold; color:{score_color};'>{match_score:.1f}%</div>
+                </div>
+                    """, 
+                    unsafe_allow_html=True
+                )
             
             with tabs[2]:
                 # Display match scores in card format

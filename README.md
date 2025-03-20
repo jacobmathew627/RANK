@@ -1,88 +1,58 @@
-# Resume Optimization System
+# Resume Rank & Optimization
 
-A powerful resume analysis and optimization system that uses Gemini AI to evaluate resumes against job descriptions. The system provides detailed matching analysis, suggestions for improvement, and structured information extraction.
+A powerful AI-based tool that analyzes resumes against job descriptions, providing match scores and optimization suggestions.
 
 ## Features
 
-- Multiple resume upload support (PDF and DOCX formats)
-- AI-powered resume analysis using Google's Gemini API
-- Semantic matching score calculation
-- Detailed feedback and improvement suggestions
-- Structured information extraction (skills, experience, education)
-- User-friendly web interface using Streamlit
+- **Resume Analysis**: Calculate how well a resume matches a specific job description
+- **Match Scoring**: Get detailed scoring across multiple dimensions including technical skills, soft skills, and keyword matching
+- **Resume Optimization**: Receive AI-generated suggestions to improve your resume
+- **Batch Processing**: Compare multiple resumes against a single job description
+- **Single Resume Mode**: Deep dive into a single resume for detailed analysis
 
-## Requirements
+## How to Run
 
-- Python 3.8+
-- Gemini API key from Google AI Studio
-- Dependencies listed in requirements.txt
+1. Make sure you have Python 3.8+ installed
 
-## Installation
+2. Install the required packages:
+   ```
+   pip install -r requirements.txt
+   ```
 
-1. Clone the repository:
-```bash
-git clone <repository-url>
-cd resume-optimization-system
-```
+3. Run the application:
+   ```
+   streamlit run app.py
+   ```
 
-2. Create and activate a virtual environment (optional but recommended):
-```bash
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-```
-
-3. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-4. Set up your Gemini API key:
-   - Get your API key from [Google AI Studio](https://makersuite.google.com/app/apikey)
-   - Replace "YOUR_GEMINI_API_KEY" in app.py with your actual API key
+4. The application will open in your web browser at http://localhost:8501
 
 ## Usage
 
-1. Start the application:
-```bash
-streamlit run app.py
-```
+### Single Resume Analysis
 
-2. Open your web browser and navigate to the provided URL (typically http://localhost:8501)
+1. Upload your resume (PDF or DOCX format)
+2. Paste the job description you're applying for
+3. View your match score and detailed analysis
+4. Get an optimized version of your resume tailored for the specific job
 
-3. Upload one or more resumes (PDF or DOCX format)
+### Batch Processing
 
-4. Paste the job description
-
-5. View the analysis results:
-   - Match score
-   - Detailed analysis and suggestions
-   - Extracted information
-
-## File Structure
-
-- `app.py`: Main application file containing the Streamlit interface and analysis logic
-- `requirements.txt`: List of Python dependencies
-- `README.md`: Project documentation
+1. Upload multiple resumes (PDF or DOCX format)
+2. Paste the job description
+3. See all resumes ranked by match score
+4. Click to view detailed analysis for each resume
 
 ## How It Works
 
-1. **Resume Parsing**: The system extracts text from PDF and DOCX files using PyPDF2 and python-docx libraries.
+The application uses a hybrid approach to calculate match scores:
 
-2. **Match Score Calculation**: Uses sentence-transformers to calculate semantic similarity between the resume and job description.
-
-3. **AI Analysis**: Leverages Gemini AI to provide detailed analysis, including:
-   - Match classification (High/Low)
-   - Reasons for low matching
-   - Actionable improvement suggestions
-
-4. **Information Extraction**: Extracts structured information using regular expressions:
-   - Skills
-   - Experience
-   - Education
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
+- Semantic similarity (25% weight) - Vector embeddings measure overall text similarity
+- Overall context understanding (25% weight) - AI analysis of career narrative alignment
+- Technical skills match (15% weight) - Specific technical skills comparison
+- Soft skills match (8% weight) - Communication and interpersonal skills alignment
+- Experience match (12% weight) - Years and relevance of experience
+- Education match (5% weight) - Education requirements fulfillment
+- Keyword match (10% weight) - Domain-specific terminology overlap
 
 ## License
 
