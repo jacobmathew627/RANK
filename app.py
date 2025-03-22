@@ -8,12 +8,41 @@ import google.generativeai as genai
 import streamlit as st
 import os
 
-# Configure Gemini API
-genai.configure(api_key="AIzaSyCQM4lEwFRf5N6XBs21Of4FyMmouo8g00A")  # Replace with your actual API key
-model = genai.GenerativeModel('gemini-1.5-flash')
+# Initialize session state for API key
+if 'api_key' not in st.session_state:
+    # Try to get API key from environment variable or use a placeholder
+    st.session_state.api_key = os.environ.get("GEMINI_API_KEY", "")
+    st.session_state.api_key_configured = False
 
-# Initialize Sentence Transformer model for embeddings
-embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+# Initialize Gemini model and embedding model
+model = None
+embedding_model = None
+
+def initialize_models():
+    """Initialize AI models with the configured API key"""
+    global model, embedding_model
+    
+    try:
+        # Configure Gemini API with the key from session state
+        if st.session_state.api_key:
+            genai.configure(api_key=st.session_state.api_key)
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            st.session_state.api_key_configured = True
+            
+            # Initialize Sentence Transformer model for embeddings
+            embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+            
+            return True
+    except Exception as e:
+        st.error(f"Error initializing AI models: {e}")
+        st.session_state.api_key_configured = False
+        return False
+    
+    return False
+
+# Initialize models on startup if API key is available
+if st.session_state.api_key:
+    initialize_models()
 
 def upload_and_parse_resume(file):
     if file.type == "application/pdf":
@@ -29,85 +58,156 @@ def upload_and_parse_resume(file):
     return text
 
 def calculate_match_score(resume_text, job_description):
-    # Calculate semantic similarity as baseline
-    resume_embedding = embedding_model.encode([resume_text])
-    job_embedding = embedding_model.encode([job_description])
-    similarity_score = np.dot(resume_embedding, job_embedding.T)[0][0]
-    
-    # Normalize similarity score to [0, 1]
-    similarity_score = (similarity_score + 1) / 2
-    
-    # Use AI to intelligently analyze skills, experience, and education
-    prompt = f"""
-    You are a precise resume analysis system that provides objective, factual scoring. 
-    Analyze the following resume and job description for match scoring purposes.
-    
-    Resume:
-    {resume_text}
-    
-    Job Description:
-    {job_description}
-    
-    Please provide a detailed analysis with the following components:
-    
-    1. Technical Skills Analysis:
-       - Identify specific technical skills mentioned in the job description (like programming languages, tools, frameworks)
-       - Identify specific technical skills mentioned in the resume
-       - Calculate a match score (0-1) based on exact presence and semantic similarity between skills
-       - Consider only actual technical skills, not general terms or concepts
-       - Base your scoring on objective evidence in the texts
-
-    2. Soft Skills Analysis:
-       - Identify specific soft skills mentioned in the job description
-       - Identify specific soft skills mentioned in the resume
-       - Calculate a match score (0-1) based on exact presence and semantic similarity
-       - Consider only actual soft skills, not general terms or concepts
-       - Base your scoring on objective evidence in the texts
-
-    3. Experience Analysis:
-       - Identify specific years of experience required in the job description
-       - Identify specific years of experience mentioned in the resume
-       - Calculate a match score (0-1) using these clear metrics:
-         * If job requires X years and resume shows X or more years: 1.0
-         * If job requires X years and resume shows Y years (Y < X): Y/X
-         * If no specific experience requirement: 0.8 if resume shows relevant experience, 0.5 if unclear
-
-    4. Education Analysis:
-       - Identify specific education requirements in the job description (degrees, fields)
-       - Identify specific education mentioned in the resume
-       - Calculate a match score (0-1) that reflects exact fulfillment of requirements
-       - If no education requirements specified, score 1.0 if any formal education is present, 0.5 if unclear
-
-    5. Keyword Match Analysis:
-       - Identify important domain-specific keywords in the job description 
-       - Calculate a match score (0-1) for keyword overlap with the resume
-       - Consider only meaningful keywords, not common words
-       - Base score on percentage of important keywords present in resume
-    
-    Format your response as a JSON object with these exact keys:
-    {{
-        "technical_skills_match": <float between 0-1>,
-        "soft_skills_match": <float between 0-1>,
-        "experience_match": <float between 0-1>,
-        "education_match": <float between 0-1>,
-        "keyword_score": <float between 0-1>,
-        "technical_skills_job": [list of strings],
-        "technical_skills_resume": [list of strings],
-        "soft_skills_job": [list of strings],
-        "soft_skills_resume": [list of strings],
-        "explanation": "<brief explanation of overall match>"
-    }}
-    
-    Important: 
-    1. Be conservative in your scoring - if something is unclear, score it lower rather than assuming a match
-    2. All scores MUST be between 0.0 and 1.0
-    3. Base all scoring on objective evidence from the text, not assumptions
-    4. For every score component, document the exact evidence you found in the explanation
-    5. If a requested skill/requirement isn't mentioned at all in the resume, its match score should be 0.0 
-    6. Provide precise lists of actual skills found, not general categories
     """
+    Calculate a match score between a resume and job description using a 3-step process:
+    1. BERT-based Embedding Similarity (Semantic Understanding)
+    2. TF-IDF/Keyword Matching (Keyword Relevance)
+    3. LLM Refinement using Gemini (Contextual Evaluation & Final Scoring)
     
+    Args:
+        resume_text (str): The parsed text from the resume
+        job_description (str): The job description text
+        
+    Returns:
+        tuple: (percentage_match, enhanced_scores, keywords_found, keywords_missing, resume_keywords)
+    """
+    # Initialize default values in case of errors
+    default_score = 0.5
+    enhanced_scores = {
+        "technical_skills": default_score * 100,
+        "soft_skills": default_score * 100,
+        "experience": default_score * 100,
+        "education": default_score * 100,
+        "keyword_match": default_score * 100
+    }
+    keywords_found = []
+    keywords_missing = []
+    resume_keywords = []
+    
+    # Step 1: BERT-based Embedding Similarity
     try:
+        if embedding_model is None:
+            print("Warning: Embedding model not loaded. Using default similarity score.")
+            similarity_score = default_score
+        else:
+            print("Calculating BERT embedding similarity...")
+            resume_embedding = embedding_model.encode([resume_text])
+            job_embedding = embedding_model.encode([job_description])
+            similarity_score = np.dot(resume_embedding, job_embedding.T)[0][0]
+            
+            # Normalize similarity score to [0, 1]
+            similarity_score = (similarity_score + 1) / 2
+            print(f"BERT Embedding Similarity Score: {similarity_score:.2f}")
+    except Exception as e:
+        print(f"Error calculating semantic similarity: {e}")
+        similarity_score = default_score
+    
+    # Step 2: TF-IDF/Keyword Matching
+    try:
+        # Extract key terms from job description
+        print("Performing TF-IDF/Keyword matching...")
+        
+        # Simple keyword extraction (could be replaced with actual TF-IDF)
+        job_words = set(re.findall(r'\b[A-Za-z][A-Za-z0-9+#\.]{2,}\b', job_description.lower()))
+        resume_words = set(re.findall(r'\b[A-Za-z][A-Za-z0-9+#\.]{2,}\b', resume_text.lower()))
+        
+        # Store extracted resume keywords (excluding common words)
+        common_words = {'the', 'and', 'for', 'with', 'this', 'that', 'from', 'have', 'was', 'were', 'are', 'has', 'had', 
+                       'not', 'but', 'what', 'all', 'when', 'can', 'who', 'been', 'will', 'more', 'would', 'their', 
+                       'one', 'other', 'they', 'some', 'than', 'then', 'its', 'also', 'after', 'such', 'most', 'used'}
+        resume_keywords = [word for word in resume_words if word not in common_words and len(word) > 3]
+        resume_keywords.sort()  # Sort alphabetically
+        
+        # Calculate keyword match rate
+        if job_words:
+            keyword_match_rate = len(job_words.intersection(resume_words)) / len(job_words)
+        else:
+            keyword_match_rate = 0.5
+            
+        print(f"Keyword Match Rate: {keyword_match_rate:.2f}")
+    except Exception as e:
+        print(f"Error calculating keyword match: {e}")
+        keyword_match_rate = default_score
+    
+    # Step 3: LLM Refinement using Gemini 
+    try:
+        print("Performing LLM refinement with Gemini...")
+        prompt = f"""
+        You are a precise resume analysis system that provides objective, factual scoring. 
+        Analyze the following resume and job description for match scoring purposes.
+        
+        Resume:
+        {resume_text}
+        
+        Job Description:
+        {job_description}
+        
+        Please provide a detailed analysis with the following components:
+        
+        1. Technical Skills Analysis:
+           - Identify specific technical skills mentioned in the job description (like programming languages, tools, frameworks)
+           - Identify specific technical skills mentioned in the resume
+           - Calculate a match score (0-1) based on exact presence and semantic similarity between skills
+           - Consider only actual technical skills, not general terms or concepts
+           - Base your scoring on objective evidence in the texts
+    
+        2. Soft Skills Analysis:
+           - Identify specific soft skills mentioned in the job description
+           - Identify specific soft skills mentioned in the resume
+           - Calculate a match score (0-1) based on exact presence and semantic similarity
+           - Consider only actual soft skills, not general terms or concepts
+           - Base your scoring on objective evidence in the texts
+    
+        3. Experience Analysis:
+           - Identify specific years of experience required in the job description
+           - Identify specific years of experience mentioned in the resume
+           - Calculate a match score (0-1) using these clear metrics:
+             * If job requires X years and resume shows X or more years: 1.0
+             * If job requires X years and resume shows Y years (Y < X): Y/X
+             * If no specific experience requirement: 0.8 if resume shows relevant experience, 0.5 if unclear
+    
+        4. Education Analysis:
+           - Identify specific education requirements in the job description (degrees, fields)
+           - Identify specific education mentioned in the resume
+           - Calculate a match score (0-1) that reflects exact fulfillment of requirements
+           - If no education requirements specified, score 1.0 if any formal education is present, 0.5 if unclear
+    
+        5. Keyword Match Analysis:
+           - Identify important domain-specific keywords in the job description 
+           - Calculate a match score (0-1) for keyword overlap with the resume
+           - Consider only meaningful keywords, not common words
+           - Base score on percentage of important keywords present in resume
+        
+        Format your response as a JSON object with these exact keys:
+        {{
+            "technical_skills_match": <float between 0-1>,
+            "soft_skills_match": <float between 0-1>,
+            "experience_match": <float between 0-1>,
+            "education_match": <float between 0-1>,
+            "keyword_score": <float between 0-1>,
+            "technical_skills_job": [list of strings],
+            "technical_skills_resume": [list of strings],
+            "soft_skills_job": [list of strings],
+            "soft_skills_resume": [list of strings],
+            "explanation": "<brief explanation of overall match>"
+        }}
+        
+        Important: 
+        1. Be conservative in your scoring - if something is unclear, score it lower rather than assuming a match
+        2. All scores MUST be between 0.0 and 1.0
+        3. Base all scoring on objective evidence from the text, not assumptions
+        4. For every score component, document the exact evidence you found in the explanation
+        5. If a requested skill/requirement isn't mentioned at all in the resume, its match score should be 0.0 
+        6. Provide precise lists of actual skills found, not general categories
+        """
+        
+        # Initialize default analysis values
+        tech_skills_match = similarity_score
+        soft_skills_match = similarity_score
+        experience_match = default_score
+        education_match = default_score
+        keyword_score = keyword_match_rate  # Use the TF-IDF score as a base
+        
         response = model.generate_content(prompt)
         analysis_text = response.text
         
@@ -117,144 +217,144 @@ def calculate_match_score(resume_text, job_description):
         # Parse the JSON response
         analysis = json.loads(analysis_text)
         
-        # Validate scores to ensure they're in the valid range [0,1]
-        tech_skills_match = max(0.0, min(1.0, analysis.get("technical_skills_match", 0.5)))
-        soft_skills_match = max(0.0, min(1.0, analysis.get("soft_skills_match", 0.5)))
-        experience_match = max(0.0, min(1.0, analysis.get("experience_match", 0.5)))
-        education_match = max(0.0, min(1.0, analysis.get("education_match", 0.5)))
-        keyword_score = max(0.0, min(1.0, analysis.get("keyword_score", 0.5)))
+        # Extract and validate scores
+        tech_skills_match = float(max(0.0, min(1.0, analysis.get("technical_skills_match", default_score))))
+        soft_skills_match = float(max(0.0, min(1.0, analysis.get("soft_skills_match", default_score))))
+        experience_match = float(max(0.0, min(1.0, analysis.get("experience_match", default_score))))
+        education_match = float(max(0.0, min(1.0, analysis.get("education_match", default_score))))
         
-        # Log the extracted skills for debugging
-        print(f"Technical Skills in Job: {analysis.get('technical_skills_job', [])}")
-        print(f"Technical Skills in Resume: {analysis.get('technical_skills_resume', [])}")
-        print(f"Soft Skills in Job: {analysis.get('soft_skills_job', [])}")
-        print(f"Soft Skills in Resume: {analysis.get('soft_skills_resume', [])}")
-        print(f"Explanation: {analysis.get('explanation', 'No explanation provided')}")
+        # Use our TF-IDF score as a factor in the final keyword score
+        llm_keyword_score = float(max(0.0, min(1.0, analysis.get("keyword_score", default_score))))
+        keyword_score = (keyword_match_rate * 0.4) + (llm_keyword_score * 0.6)  # Weighted combination
         
-        # Sanity check: ensure tech_skills_match and soft_skills_match align with the skills lists
+        # Extract skill lists
         tech_skills_job = analysis.get('technical_skills_job', [])
         tech_skills_resume = analysis.get('technical_skills_resume', [])
         soft_skills_job = analysis.get('soft_skills_job', [])
         soft_skills_resume = analysis.get('soft_skills_resume', [])
         
-        # If no skills found in job, these components should have lower weight
-        if len(tech_skills_job) == 0:
-            tech_skills_match = similarity_score # fallback to semantic similarity
-        if len(soft_skills_job) == 0:
-            soft_skills_match = similarity_score # fallback to semantic similarity
-            
-        # Verify the match scores make sense given the overlap in skills
-        if len(tech_skills_job) > 0 and len(tech_skills_resume) == 0:
+        # Enhance the resume_keywords list with recognized skills from LLM
+        resume_keywords = list(set(resume_keywords + tech_skills_resume + soft_skills_resume))
+        resume_keywords.sort()  # Sort alphabetically
+        
+        # Debug logging
+        print(f"Technical Skills in Job: {tech_skills_job}")
+        print(f"Technical Skills in Resume: {tech_skills_resume}")
+        print(f"Soft Skills in Job: {soft_skills_job}")
+        print(f"Soft Skills in Resume: {soft_skills_resume}")
+        print(f"Explanation: {analysis.get('explanation', 'No explanation provided')}")
+        
+        # Adjust scores based on skills presence
+        has_tech_requirements = len(tech_skills_job) > 0
+        has_soft_requirements = len(soft_skills_job) > 0
+        
+        # If no skills found in job, use semantic similarity as fallback
+        if not has_tech_requirements:
+            tech_skills_match = similarity_score
+        elif len(tech_skills_resume) == 0:
             tech_skills_match = 0.0  # No technical skills in resume
-        if len(soft_skills_job) > 0 and len(soft_skills_resume) == 0:
+            
+        if not has_soft_requirements:
+            soft_skills_match = similarity_score
+        elif len(soft_skills_resume) == 0:
             soft_skills_match = 0.0  # No soft skills in resume
+            
+        # Collect keywords for UI display
+        all_job_keywords = set()
+        all_job_keywords.update(tech_skills_job)
+        all_job_keywords.update(soft_skills_job)
+        
+        all_resume_keywords = set()
+        all_resume_keywords.update(tech_skills_resume)
+        all_resume_keywords.update(soft_skills_resume)
+        
+        # Find matching and missing keywords
+        keywords_found = list(all_job_keywords.intersection(all_resume_keywords))
+        keywords_missing = list(all_job_keywords - all_resume_keywords)
             
     except Exception as e:
         print(f"Error in AI analysis: {e}")
-        # Fallback to simpler analysis using sentence embeddings only
-        tech_skills_match = similarity_score
-        soft_skills_match = similarity_score
-        experience_match = 0.5  # Default middle value
-        education_match = 0.5   # Default middle value
-        keyword_score = similarity_score
-        
-    # Weighted scoring with dynamic weights based on job requirements
-    # Default weights
-    semantic_weight = 0.3
-    keyword_weight = 0.15
-    tech_skills_weight = 0.25
-    soft_skills_weight = 0.1
-    experience_weight = 0.15
-    education_weight = 0.05
+        # Keep the default values but factor in the TF-IDF score
+        keyword_score = keyword_match_rate
     
-    # Get flags for whether each component was meaningfully assessed
-    has_tech_requirements = len(analysis.get('technical_skills_job', [])) > 0 if 'analysis' in locals() else True
-    has_soft_requirements = len(analysis.get('soft_skills_job', [])) > 0 if 'analysis' in locals() else True
+    # Calculate final score with weighted components
+    # Dynamic weight calculation based on job description content
+    weights = {
+        "semantic": 0.20,      # BERT-based embedding similarity
+        "keyword": 0.20,       # TF-IDF + LLM keyword matching (increased weight)
+        "tech_skills": 0.25,   # Technical skills
+        "soft_skills": 0.10,   # Soft skills
+        "experience": 0.15,    # Experience
+        "education": 0.10      # Education
+    }
     
-    # Adjust weights if certain components aren't relevant
-    if not has_tech_requirements:
-        tech_skills_weight = 0.05
-        # Redistribute weight
-        semantic_weight += 0.1
-        keyword_weight += 0.05
-        soft_skills_weight += 0.05
+    # Adjust weights based on job requirements
+    if 'analysis' in locals():
+        has_tech_requirements = len(analysis.get('technical_skills_job', [])) > 0
+        has_soft_requirements = len(analysis.get('soft_skills_job', [])) > 0
         
-    if not has_soft_requirements:
-        soft_skills_weight = 0.05
-        # Redistribute weight
-        semantic_weight += 0.05
+        # If technical skills aren't emphasized, redistribute weight
+        if not has_tech_requirements:
+            extra = weights["tech_skills"] * 0.8  # Reduce tech weight by 80%
+            weights["tech_skills"] *= 0.2         # Keep 20% of original weight
+            
+            # Redistribute the extra weight
+            weights["semantic"] += extra * 0.4    # 40% to semantic
+            weights["keyword"] += extra * 0.3     # 30% to keyword
+            weights["experience"] += extra * 0.3  # 30% to experience
         
+        # If soft skills aren't emphasized, redistribute weight
+        if not has_soft_requirements:
+            extra = weights["soft_skills"] * 0.8  # Reduce soft weight by 80%
+            weights["soft_skills"] *= 0.2         # Keep 20% of original weight
+            
+            # Redistribute the extra weight
+            weights["semantic"] += extra * 0.5    # 50% to semantic
+            weights["experience"] += extra * 0.5  # 50% to experience
+    
     # Normalize weights to ensure they sum to 1.0
-    total_weight = (semantic_weight + keyword_weight + tech_skills_weight + 
-                   soft_skills_weight + experience_weight + education_weight)
+    total_weight = sum(weights.values())
+    for key in weights:
+        weights[key] /= total_weight
     
-    semantic_weight /= total_weight
-    keyword_weight /= total_weight
-    tech_skills_weight /= total_weight
-    soft_skills_weight /= total_weight
-    experience_weight /= total_weight
-    education_weight /= total_weight
-    
+    # Calculate weighted score
     combined_score = (
-        (semantic_weight * similarity_score) +
-        (keyword_weight * keyword_score) +
-        (tech_skills_weight * tech_skills_match) +
-        (soft_skills_weight * soft_skills_match) +
-        (experience_weight * experience_match) +
-        (education_weight * education_match)
+        (weights["semantic"] * similarity_score) +
+        (weights["keyword"] * keyword_score) +
+        (weights["tech_skills"] * tech_skills_match) +
+        (weights["soft_skills"] * soft_skills_match) +
+        (weights["experience"] * experience_match) +
+        (weights["education"] * education_match)
     )
     
-    # Scale score to 1-10
-    scaled_score = combined_score * 9 + 1
+    # Ensure the score is within valid range [0, 1]
+    combined_score = max(0.0, min(1.0, combined_score))
     
-    # Calculate a percentage match for the UI (0-100%)
+    # Calculate percentage match (0-100%)
     percentage_match = combined_score * 100
     
-    # Print scores for debugging (can be commented out in production)
-    print(f"Semantic Score: {similarity_score:.2f}")
-    print(f"AI Keyword Score: {keyword_score:.2f}")
-    print(f"AI Tech Skills Match: {tech_skills_match:.2f}")
-    print(f"AI Soft Skills Match: {soft_skills_match:.2f}")
-    print(f"AI Experience Match: {experience_match:.2f}")
-    print(f"AI Education Match: {education_match:.2f}")
-    print(f"Weights: Semantic={semantic_weight:.2f}, Keyword={keyword_weight:.2f}, "
-          f"Tech={tech_skills_weight:.2f}, Soft={soft_skills_weight:.2f}, "
-          f"Exp={experience_weight:.2f}, Edu={education_weight:.2f}")
-    print(f"Final Score: {scaled_score:.2f}")
+    # Debug information
+    print(f"Final Weights: {weights}")
+    print(f"Component Scores:")
+    print(f"  - BERT Semantic={similarity_score:.2f}")
+    print(f"  - TF-IDF/Keyword={keyword_score:.2f}")
+    print(f"  - Tech Skills={tech_skills_match:.2f}")
+    print(f"  - Soft Skills={soft_skills_match:.2f}")
+    print(f"  - Experience={experience_match:.2f}")
+    print(f"  - Education={education_match:.2f}")
+    print(f"Combined Score: {combined_score:.2f}")
     print(f"Percentage Match: {percentage_match:.2f}%")
     
-    # Create enhanced scores dictionary for UI display
+    # Update enhanced scores for UI display (removed overall_relevance)
     enhanced_scores = {
         "technical_skills": tech_skills_match * 100,
         "soft_skills": soft_skills_match * 100,
         "experience": experience_match * 100,
         "education": education_match * 100,
-        "keyword_match": keyword_score * 100,
-        "overall_relevance": similarity_score * 100
+        "keyword_match": keyword_score * 100
     }
     
-    # Keywords found and missing (from the analysis if available)
-    keywords_found = []
-    keywords_missing = []
-    
-    try:
-        if 'analysis' in locals():
-            # Collect all skills (technical and soft) found in both resume and job
-            all_job_keywords = set()
-            all_job_keywords.update(analysis.get('technical_skills_job', []))
-            all_job_keywords.update(analysis.get('soft_skills_job', []))
-            
-            all_resume_keywords = set()
-            all_resume_keywords.update(analysis.get('technical_skills_resume', []))
-            all_resume_keywords.update(analysis.get('soft_skills_resume', []))
-            
-            # Find matching and missing keywords
-            keywords_found = list(all_job_keywords.intersection(all_resume_keywords))
-            keywords_missing = list(all_job_keywords - all_resume_keywords)
-    except Exception as e:
-        print(f"Error extracting keywords: {e}")
-    
-    return percentage_match, enhanced_scores, keywords_found, keywords_missing
+    return percentage_match, enhanced_scores, keywords_found, keywords_missing, resume_keywords
 
 def optimize_resume(resume_text, job_description):
     prompt = f"""
@@ -410,40 +510,45 @@ def analyze_low_matching(resume_text, job_description):
     return reasons, suggestions, full_response
 
 def format_analysis(text):
-    """Format the analysis text for better readability in HTML"""
+    """Format analysis text for better readability in HTML, using enhanced styling.
+    
+    Args:
+        text (str): The raw analysis text from the AI model
+        
+    Returns:
+        str: HTML formatted text with enhanced styling
+    """
+    if not text:
+        return ""
+    
     # Replace section headers with styled headers
-    text = text.replace("RESUME ASSESSMENT:", "<h3>Resume Assessment</h3>")
-    text = text.replace("DETAILED REASONS:", "<h3>Alignment Issues</h3>")
-    text = text.replace("REASONS:", "<h3>Alignment Issues</h3>")
-    text = text.replace("ACTIONABLE RECOMMENDATIONS:", "<h3>Actionable Recommendations</h3>")
-    text = text.replace("RECOMMENDATIONS:", "<h3>Actionable Recommendations</h3>")
-    text = text.replace("SUGGESTIONS:", "<h3>Actionable Recommendations</h3>")
-    text = text.replace("TAILORED KEYWORDS TO ADD:", "<h3>Recommended Keywords</h3>")
+    for pattern in [r'(?m)^#\s+(.*?)$', r'(?m)^##\s+(.*?)$', r'(?m)^###\s+(.*?)$']:
+        text = re.sub(pattern, r'<div class="section-header">\1</div>', text)
     
-    # Format bullet points
-    lines = text.split('\n')
-    formatted_lines = []
+    # Format bullet points with enhanced styling
+    text = re.sub(r'(?m)^[*•-]\s+(.*?)$', r'<div class="bullet-point"><span class="bullet"></span><span class="bullet-content">\1</span></div>', text)
     
-    for line in lines:
-        line = line.strip()
-        if not line:
-            formatted_lines.append("<br>")
-        elif line.startswith('-'):
-            # Convert bullet points to styled paragraphs
-            content = line[1:].strip()
-            formatted_lines.append(f"<p>• {content}</p>")
-        elif line.startswith('•'):
-            # Already has bullet point
-            content = line[1:].strip()
-            formatted_lines.append(f"<p>• {content}</p>")
-        elif not any(header in line for header in ["<h3>", "<br>"]):
-            # Regular text that's not a header or bullet
-            formatted_lines.append(f"<p>{line}</p>")
-        else:
-            # Headers or breaks
-            formatted_lines.append(line)
+    # Handle multi-line bullet points (maintain indentation)
+    text = re.sub(r'(?m)^(\s{2,})(.*?)$', r'<div style="margin-left: 18px;">\2</div>', text)
     
-    return "".join(formatted_lines)
+    # Format paragraphs only if they are substantial (not headers or breaks)
+    paragraphs = text.split('\n\n')
+    formatted_paragraphs = []
+    
+    for p in paragraphs:
+        # Skip empty paragraphs
+        if not p.strip():
+            continue
+            
+        # If paragraph doesn't contain a header or bullet already, wrap it in paragraph tags
+        if not re.search(r'<div class="section-header"|<div class="bullet-point"', p):
+            # Only wrap substantial text in paragraph tags (more than just a few characters)
+            if len(p.strip()) > 5 and not p.strip().startswith('<div'):
+                p = f'<p>{p}</p>'
+        
+        formatted_paragraphs.append(p)
+    
+    return ''.join(formatted_paragraphs)
 
 def load_css():
     # Load external CSS file
@@ -451,90 +556,193 @@ def load_css():
         st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
 
 def batch_processing_ui():
-    st.header("Batch Processing")
+    # Add app header with proper styling for batch processing
+    st.markdown("""
+    <div class="batch-header">
+        <div class="batch-title">Batch Resume Processing</div>
+        <div class="batch-description">Upload multiple resumes to compare them against a job description and rank the best matches.</div>
+    </div>
+    """, unsafe_allow_html=True)
     
-    uploaded_files = st.file_uploader("Upload resumes", type=["pdf", "docx"], accept_multiple_files=True)
+    uploaded_files = st.file_uploader("Upload multiple resumes", type=["pdf", "docx"], accept_multiple_files=True)
     job_description = st.text_area("Paste the job description here", key="batch_job_description", height=200)
     
     if uploaded_files and job_description:
-        all_resumes = []
-        for uploaded_file in uploaded_files:
-            resume_text = upload_and_parse_resume(uploaded_file)
-            if resume_text:
-                all_resumes.append({
-                    "name": uploaded_file.name,
-                    "text": resume_text
-                })
-        
-        if all_resumes:
-            # Calculate scores and sort resumes
-            for resume in all_resumes:
-                percentage_match, enhanced_scores, keywords_found, keywords_missing = calculate_match_score(resume['text'], job_description)
-                resume['percentage_match'] = percentage_match
-                resume['enhanced_scores'] = enhanced_scores
-                resume['keywords_found'] = keywords_found
-                resume['keywords_missing'] = keywords_missing
+        # Process uploaded files
+        with st.spinner("Processing resumes..."):
+            batch_results = []
             
-            # Sort resumes by score
-            all_resumes.sort(key=lambda x: x['percentage_match'], reverse=True)
+            # Create a progress bar
+            progress_bar = st.progress(0)
             
-            st.write("## Resume Analysis")
-
-            for idx, resume in enumerate(all_resumes, start=1):
-                if resume['percentage_match'] > 80:
-                    classification = "Highly Matching"
-                    badge_class = "high-match"
-                elif resume['percentage_match'] > 50:
-                    classification = "Medium Matching"
-                    badge_class = "medium-match"
-                else:
-                    classification = "Low Matching"
-                    badge_class = "low-match"
+            for i, uploaded_file in enumerate(uploaded_files):
+                # Update progress
+                progress = (i + 1) / len(uploaded_files)
+                progress_bar.progress(progress)
                 
-                # Enhanced display with score
+                # Extract text from resume
+                resume_text = upload_and_parse_resume(uploaded_file)
+                
+                if resume_text:
+                    # Calculate match scores
+                    percentage_match, enhanced_scores, keywords_found, keywords_missing, resume_keywords = calculate_match_score(resume_text, job_description)
+                    
+                    # Get analysis and optimized resume up front
+                    reasons, suggestions, full_response = analyze_low_matching(resume_text, job_description)
+                    formatted_response = format_analysis(full_response)
+                    
+                    optimized_resume = optimize_resume(resume_text, job_description)
+                    
+                    # Determine classification
+                    if percentage_match > 80:
+                        classification = "Highly Matching"
+                        badge_class = "high-match"
+                    elif percentage_match > 50:
+                        classification = "Medium Matching"
+                        badge_class = "medium-match"
+                    else:
+                        classification = "Low Matching"
+                        badge_class = "low-match"
+                    
+                    # Add to results
+                    batch_results.append({
+                        "file_name": uploaded_file.name,
+                        "score": percentage_match,
+                        "classification": classification,
+                        "badge_class": badge_class,
+                        "enhanced_scores": enhanced_scores,
+                        "keywords_found": keywords_found,
+                        "keywords_missing": keywords_missing,
+                        "resume_keywords": resume_keywords,
+                        "resume_text": resume_text,
+                        "analysis": formatted_response,
+                        "optimized_resume": optimized_resume
+                    })
+            
+            # Remove progress bar after completion
+            progress_bar.empty()
+        
+        # Sort results by score (highest first)
+        batch_results.sort(key=lambda x: x["score"], reverse=True)
+        
+        # Display summary statistics
+        st.markdown('<div class="section-header">Ranking Summary</div>', unsafe_allow_html=True)
+        
+        # Count resumes by category
+        high_matches = sum(1 for result in batch_results if result["classification"] == "Highly Matching")
+        medium_matches = sum(1 for result in batch_results if result["classification"] == "Medium Matching")
+        low_matches = sum(1 for result in batch_results if result["classification"] == "Low Matching")
+        
+        # Create a 3-column display for summary stats
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.markdown(f"""
+            <div class="high-match" style="text-align: center; padding: 15px; border-radius: 8px;">
+                <div style="font-size: 2.5rem; font-weight: 700;">{high_matches}</div>
+                <div>High Matches</div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+        with col2:
+            st.markdown(f"""
+            <div class="medium-match" style="text-align: center; padding: 15px; border-radius: 8px;">
+                <div style="font-size: 2.5rem; font-weight: 700;">{medium_matches}</div>
+                <div>Medium Matches</div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+        with col3:
+            st.markdown(f"""
+            <div class="low-match" style="text-align: center; padding: 15px; border-radius: 8px;">
+                <div style="font-size: 2.5rem; font-weight: 700;">{low_matches}</div>
+                <div>Low Matches</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # Display individual results
+        st.markdown('<div class="section-header">Ranked Results</div>', unsafe_allow_html=True)
+        
+        for i, result in enumerate(batch_results, 1):
+            with st.expander(f"#{i}: {result['file_name']} - {result['score']:.2f}% ({result['classification']})"):
+                # Resume details in a card
                 st.markdown(f"""
                 <div class="resume-card">
                     <div class="resume-title">
-                        {idx}. {resume['name']} 
-                        <span class="score-badge {badge_class}">Score: {resume['percentage_match']:.2f}%</span>
+                        {result['file_name']} 
+                        <span class="score-badge {result['badge_class']}">Score: {result['score']:.2f}%</span>
                     </div>
-                    <div class="classification">{classification}</div>
+                    <div class="classification">{result['classification']}</div>
                 </div>
                 """, unsafe_allow_html=True)
                 
-                with st.expander("Show Analysis"):
-                    if classification in ["Low Matching", "Medium Matching"]:
-                        # Get the analysis but don't display reasons and suggestions separately
-                        reasons, suggestions, full_response = analyze_low_matching(resume['text'], job_description)
-                        
-                        # Display optimized resume
-                        optimized_resume = optimize_resume(resume['text'], job_description)
-                        st.markdown("<div class='analysis-section'><strong>Optimized Resume:</strong></div>", unsafe_allow_html=True)
-                        st.markdown(f"""
-                        <div style="background-color: #f8f8f8; border-left: 4px solid #1a5276; padding: 20px; 
-                        margin: 20px 0; border-radius: 0 8px 8px 0; color: #000000; line-height: 1.6; font-size: 16px;">
-                            {optimized_resume}
-                        </div>
-                        """, unsafe_allow_html=True)
-                        
-                        # Display full API response with enhanced formatting
-                        st.markdown("<div class='analysis-section'><strong>Full Analysis:</strong></div>", unsafe_allow_html=True)
-                        
-                        # Process the full response to improve its structure
-                        formatted_response = format_analysis(full_response)
-                        
-                        st.markdown(f"""
-                        <div style="background-color: #f8f8f8; border: 1px solid #999999; border-radius: 8px; 
-                        padding: 20px; margin: 15px 0; color: #000000; font-size: 15px; line-height: 1.6;">
-                            {formatted_response}
-                        </div>
-                        """, unsafe_allow_html=True)
+                # Display detailed scores
+                st.markdown('<div class="section-header">Detailed Scores</div>', unsafe_allow_html=True)
+                score_html = "<div class='dark-section'>"
+                for category, score in result['enhanced_scores'].items():
+                    # Convert category from snake_case to Title Case
+                    category_name = ' '.join(word.capitalize() for word in category.split('_'))
+                    score_html += f"<p><strong>{category_name}:</strong> {score:.0f}%</p>"
+                score_html += "</div>"
+                st.markdown(score_html, unsafe_allow_html=True)
                 
-                # Log to terminal for debugging
-                print(f"Resume: {resume['name']}, Score: {resume['percentage_match']}, Classification: {classification}")
+                # Keywords sections
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # Resume keywords
+                    if result['resume_keywords']:
+                        st.markdown('<div class="section-header">Resume Keywords</div>', unsafe_allow_html=True)
+                        # Limit to most relevant keywords (up to 30)
+                        display_keywords = result['resume_keywords'][:30] if len(result['resume_keywords']) > 30 else result['resume_keywords']
+                        st.markdown(f"<div class='dark-section'>{', '.join(display_keywords)}</div>", 
+                                  unsafe_allow_html=True)
+                
+                    # Keywords found (moved below resume keywords)
+                    if result['keywords_found']:
+                        st.markdown('<div class="section-header">Job Keywords Found</div>', unsafe_allow_html=True)
+                        st.markdown(f"<div class='dark-section'>{', '.join(result['keywords_found'])}</div>", 
+                                  unsafe_allow_html=True)
+                
+                with col2:
+                    if result['keywords_missing']:
+                        st.markdown('<div class="section-header">Job Keywords Missing</div>', unsafe_allow_html=True)
+                        st.markdown(f"<div class='dark-section'>{', '.join(result['keywords_missing'])}</div>", 
+                                  unsafe_allow_html=True)
+                
+                # Display detailed analysis (now automatically shown)
+                st.markdown('<div class="section-header">Detailed Analysis</div>', unsafe_allow_html=True)
+                st.markdown(f"""
+                <div class="dark-section">
+                    {result['analysis']}
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Display optimized resume (now automatically shown)
+                st.markdown('<div class="section-header">Optimized Resume</div>', unsafe_allow_html=True)
+                
+                # Add notification about optimized resume
+                st.markdown("""
+                <div class="notification-box">
+                    This AI-optimized version of the resume has been tailored to better match the job description.
+                    Key improvements include enhanced keyword matching and clearer presentation of relevant skills.
+                </div>
+                """, unsafe_allow_html=True)
+                
+                st.markdown(f"""
+                <div class="dark-section">
+                    {result['optimized_resume']}
+                </div>
+                """, unsafe_allow_html=True)
 
 def single_resume_optimization_ui():
-    st.header("Single Resume Optimization")
+    # Add app header with proper styling for single resume optimization
+    st.markdown("""
+    <div class="optimization-header">
+        <div class="optimization-title">Single Resume Optimization</div>
+        <div class="optimization-description">Upload your resume and compare it against a job description to get personalized improvement suggestions.</div>
+    </div>
+    """, unsafe_allow_html=True)
     
     uploaded_file = st.file_uploader("Upload a resume", type=["pdf", "docx"], key="single_resume")
     job_description = st.text_area("Paste the job description here", key="single_job_description", height=200)
@@ -542,23 +750,32 @@ def single_resume_optimization_ui():
     if uploaded_file and job_description:
         resume_text = upload_and_parse_resume(uploaded_file)
         if resume_text:
-            percentage_match, enhanced_scores, keywords_found, keywords_missing = calculate_match_score(resume_text, job_description)
-            
-            # Determine classification based on score
-            if percentage_match > 80:
-                classification = "Highly Matching"
-                badge_class = "high-match"
-            elif percentage_match > 50:
-                classification = "Medium Matching"
-                badge_class = "medium-match"
-            else:
-                classification = "Low Matching"
-                badge_class = "low-match"
+            # Display a processing message
+            with st.spinner("Analyzing your resume and generating optimization suggestions..."):
+                # Calculate match scores
+                percentage_match, enhanced_scores, keywords_found, keywords_missing, resume_keywords = calculate_match_score(resume_text, job_description)
+                
+                # Get analysis and optimized resume upfront without requiring button clicks
+                reasons, suggestions, full_response = analyze_low_matching(resume_text, job_description)
+                formatted_response = format_analysis(full_response)
+                
+                optimized_resume = optimize_resume(resume_text, job_description)
+                
+                # Determine classification based on score
+                if percentage_match > 80:
+                    classification = "Highly Matching"
+                    badge_class = "high-match"
+                elif percentage_match > 50:
+                    classification = "Medium Matching"
+                    badge_class = "medium-match"
+                else:
+                    classification = "Low Matching"
+                    badge_class = "low-match"
             
             # Display results in an enhanced UI
             st.markdown("""
             <div class="results-container">
-                <h2 style="font-size: 24px; color: #000000; margin-bottom: 20px;">Resume Analysis Results</h2>
+                <div class="section-header">Resume Analysis Results</div>
             """, unsafe_allow_html=True)
             
             # Display score with badge
@@ -570,28 +787,62 @@ def single_resume_optimization_ui():
                 <div class="classification">{classification}</div>
             """, unsafe_allow_html=True)
             
-            # If medium or low matching, analyze but don't display reasons and suggestions separately
-            if classification in ["Low Matching", "Medium Matching"]:
-                reasons, suggestions, full_response = analyze_low_matching(resume_text, job_description)
-                
-                # Display full analysis with improved formatting
-                with st.expander("View Full Analysis"):
-                    # Process the full response to improve its structure
-                    formatted_response = format_analysis(full_response)
-                    
-                    st.markdown(f"""
-                    <div style="background-color: #f8f8f8; border: 1px solid #999999; border-radius: 8px; 
-                    padding: 20px; margin: 15px 0; color: #000000; font-size: 15px; line-height: 1.6;">
-                        {formatted_response}
-                    </div>
-                    """, unsafe_allow_html=True)
+            # Display enhanced scores in dark section
+            st.markdown('<div class="section-header">Detailed Scores</div>', unsafe_allow_html=True)
+            score_html = "<div class='dark-section'>"
+            for category, score in enhanced_scores.items():
+                # Convert category from snake_case to Title Case
+                category_name = ' '.join(word.capitalize() for word in category.split('_'))
+                score_html += f"<p><strong>{category_name}:</strong> {score:.0f}%</p>"
+            score_html += "</div>"
+            st.markdown(score_html, unsafe_allow_html=True)
             
-            # Display optimized resume
-            optimized_resume = optimize_resume(resume_text, job_description)
-            st.markdown("<div class='analysis-section'><strong>Optimized Resume:</strong></div>", unsafe_allow_html=True)
+            # Keywords sections with three columns
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Resume keywords
+                if resume_keywords:
+                    st.markdown('<div class="section-header">Resume Keywords</div>', unsafe_allow_html=True)
+                    # Limit to most relevant keywords (up to 30)
+                    display_keywords = resume_keywords[:30] if len(resume_keywords) > 30 else resume_keywords
+                    st.markdown(f"<div class='dark-section'>{', '.join(display_keywords)}</div>", 
+                              unsafe_allow_html=True)
+                
+                # Keywords found (moved below resume keywords)
+                if keywords_found:
+                    st.markdown('<div class="section-header">Job Keywords Found</div>', unsafe_allow_html=True)
+                    st.markdown(f"<div class='dark-section'>{', '.join(keywords_found)}</div>", 
+                              unsafe_allow_html=True)
+            
+            with col2:
+                if keywords_missing:
+                    st.markdown('<div class="section-header">Job Keywords Missing</div>', unsafe_allow_html=True)
+                    st.markdown(f"<div class='dark-section'>{', '.join(keywords_missing)}</div>", 
+                              unsafe_allow_html=True)
+            
+            # Display full analysis automatically (no need for expander or button click)
+            st.markdown('<div class="section-header">Detailed Analysis</div>', unsafe_allow_html=True)
             st.markdown(f"""
-            <div style="background-color: #f8f8f8; border-left: 4px solid #1a5276; padding: 20px; 
-            margin: 20px 0; border-radius: 0 8px 8px 0; color: #000000; line-height: 1.6; font-size: 16px;">
+            <div class="dark-section">
+                {formatted_response}
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Display optimized resume automatically (no need for button click)
+            st.markdown('<div class="section-header">Optimized Resume</div>', unsafe_allow_html=True)
+            
+            # Add notification about optimized resume
+            st.markdown("""
+            <div class="notification-box">
+                This AI-optimized version of your resume has been tailored to better match the job description.
+                Key improvements include enhanced keyword matching and clearer presentation of relevant skills.
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Display the optimized resume with improved styling
+            st.markdown(f"""
+            <div class="dark-section">
                 {optimized_resume}
             </div>
             """, unsafe_allow_html=True)
@@ -601,9 +852,96 @@ def single_resume_optimization_ui():
             # Log to terminal for debugging
             print(f"Resume: {uploaded_file.name}, Score: {percentage_match}, Classification: {classification}")
 
+def settings_ui():
+    """Settings tab UI for configuring the API key and other settings"""
+    st.markdown("""
+    <div class="settings-header">
+        <div class="settings-title">Application Settings</div>
+        <div class="settings-description">Configure your API keys and application preferences</div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # API Key configuration section
+    st.markdown('<div class="section-header">API Configuration</div>', unsafe_allow_html=True)
+    
+    # Display current API key status
+    if st.session_state.api_key_configured:
+        st.success("✅ Gemini API is configured and working")
+    else:
+        st.warning("⚠️ Gemini API key not configured. Please enter your API key below.")
+    
+    # API Key input
+    api_key = st.text_input(
+        "Gemini API Key", 
+        value=st.session_state.api_key,
+        type="password",
+        help="Enter your Gemini API key. Get one at https://ai.google.dev/"
+    )
+    
+    # Save API key button
+    if st.button("Save API Key"):
+        if api_key:
+            st.session_state.api_key = api_key
+            if initialize_models():
+                st.success("✅ API key saved and validated successfully!")
+            else:
+                st.error("❌ API key could not be validated. Please check your key and try again.")
+        else:
+            st.error("❌ Please enter an API key.")
+    
+    # Instructions for getting an API key
+    with st.expander("How to get a Gemini API key"):
+        st.markdown("""
+        1. Go to [Google AI Studio](https://ai.google.dev/)
+        2. Sign in with your Google account
+        3. Navigate to API keys in your settings or dashboard
+        4. Create a new API key
+        5. Copy the key and paste it here
+        """)
+    
+    # Advanced settings section
+    st.markdown('<div class="section-header">Advanced Settings</div>', unsafe_allow_html=True)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        # Model selection (for future use)
+        model_option = st.selectbox(
+            "Gemini Model",
+            options=["gemini-1.5-flash", "gemini-1.5-pro"],
+            index=0,
+            help="Choose which Gemini model to use for analysis"
+        )
+    
+    with col2:
+        # Score thresholds
+        high_match_threshold = st.slider(
+            "High Match Threshold (%)",
+            min_value=60,
+            max_value=95,
+            value=80,
+            step=5,
+            help="Score threshold for high matches"
+        )
+
 def main_ui():
     # Load external CSS
-    load_css()
+    try:
+        load_css()
+    except Exception as e:
+        st.warning(f"Could not load external CSS: {e}")
+        # Fall back to inline CSS
+        st.markdown("""
+        <style>
+        .app-header {background: linear-gradient(to right, #1e3c72, #2a5298); color: white; padding: 20px; text-align: center; border-radius: 10px;}
+        .app-title {font-size: 2.5rem; font-weight: 700; margin-bottom: 10px;}
+        .dark-section {background-color: #1e1e1e; color: white; padding: 15px; border-radius: 5px; margin: 10px 0;}
+        .section-header {background-color: #2a5298; color: white; padding: 10px; border-radius: 5px; margin: 15px 0 10px 0; font-weight: 600;}
+        </style>
+        """, unsafe_allow_html=True)
+    
+    # Check if API key is configured
+    if not st.session_state.api_key_configured:
+        st.warning("⚠️ Gemini API key not configured. Please go to Settings to set up your API key.")
     
     # Add app header with title and description
     st.markdown("""
@@ -611,20 +949,35 @@ def main_ui():
         <div class="app-title">Resume Rank & Optimization</div>
         <div class="app-description">
             Upload resumes, compare them with job descriptions, and get AI-powered optimization suggestions to improve your chances of landing your dream job.
+            <ul style="color: white; text-align: left; max-width: 800px; margin: 10px auto; list-style-position: inside;">
+                <li>Match percentage analysis</li>
+                <li>Detailed feedback on alignment</li>
+                <li>Tailored improvement recommendations</li>
+                <li>Resume optimization suggestions</li>
+            </ul>
         </div>
     </div>
     """, unsafe_allow_html=True)
     
-    # Create tabs
-    tab1, tab2 = st.tabs(["Batch Processing", "Single Resume Optimization"])
+    # Create tabs with custom styling
+    tab1, tab2, tab3 = st.tabs(["Batch Processing", "Single Resume Optimization", "Settings"])
     
     with tab1:
-        batch_processing_ui()
+        if st.session_state.api_key_configured:
+            batch_processing_ui()
+        else:
+            st.info("Please configure your Gemini API key in the Settings tab before using this feature.")
     
     with tab2:
-        single_resume_optimization_ui()
+        if st.session_state.api_key_configured:
+            single_resume_optimization_ui()
+        else:
+            st.info("Please configure your Gemini API key in the Settings tab before using this feature.")
     
-    # Add footer
+    with tab3:
+        settings_ui()
+    
+    # Add footer with custom styling
     st.markdown("""
     <div class="footer">
         Resume Rank & Optimization Tool © 2023 | Powered by AI

@@ -1,19 +1,19 @@
 /* Base styles for better readability */
 body {
-    background-color: #ffffff;
-    color: #000000;
+    background-color: #f0f4f8;
+    color: #9d9b9b;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
 /* Main styling */
 .main {
-    background-color: #ffffff;
+    background-color: #f0f4f8;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
 /* Header styling */
 h1, h2, h3, h4 {
-    color: #000000;
+    color: #1a5276;
     font-weight: 700;
     font-size: 1.5em;
     margin-bottom: 20px;
@@ -37,6 +37,10 @@ h1 {
     box-shadow: 0 4px 15px rgba(0,0,0,0.25);
 }
 
+.app-header * {
+    color: white !important;
+}
+
 .app-title {
     font-size: 40px;
     font-weight: 700;
@@ -56,21 +60,97 @@ h1 {
     font-weight: 500;
 }
 
+.app-description ul li {
+    color: white !important;
+}
+
+/* Main page elements */
+.main-page-element {
+    background-color: #ffffff;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    margin-bottom: 20px;
+    border: 1px solid #d1d9e6;
+}
+
+.main-page-element p, .main-page-element div:not(.dark-section):not(.section-header) {
+    color: #9d9b9b !important;
+}
+
+/* Batch processing specific styles */
+.batch-header {
+    background: linear-gradient(135deg, #1a237e, #283593);
+    color: white;
+    padding: 25px;
+    border-radius: 8px;
+    margin-bottom: 25px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+
+.batch-header * {
+    color: white !important;
+}
+
+.batch-title {
+    font-size: 32px;
+    font-weight: 700;
+    margin-bottom: 10px;
+    color: #ffffff;
+}
+
+.batch-description {
+    font-size: 18px;
+    color: #ffffff;
+    line-height: 1.4;
+}
+
+/* Single resume optimization specific styles */
+.optimization-header {
+    background: linear-gradient(135deg, #00695c, #00897b);
+    color: white;
+    padding: 25px;
+    border-radius: 8px;
+    margin-bottom: 25px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+
+.optimization-header * {
+    color: white !important;
+}
+
+.optimization-title {
+    font-size: 32px;
+    font-weight: 700;
+    margin-bottom: 10px;
+    color: #ffffff;
+}
+
+.optimization-description {
+    font-size: 18px;
+    color: #ffffff;
+    line-height: 1.4;
+}
+
 /* Resume card styling */
 .resume-card {
-    border: 2px solid #999999;
+    background-color: #ffffff;
+    border: 2px solid #d1d9e6;
     border-radius: 8px;
     padding: 20px;
     margin-bottom: 20px;
-    background-color: white;
-    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+.resume-card * {
+    color: #9d9b9b !important;
 }
 
 .resume-title {
     font-size: 22px;
     font-weight: 700;
     margin-bottom: 10px;
-    color: #000000;
+    color: #1a5276;
 }
 
 /* Score badge styling */
@@ -83,43 +163,81 @@ h1 {
     font-size: 16px;
 }
 
-.high-match {
-    background-color: #1e8449 !important;
+.score-badge {
     color: white !important;
+}
+
+.high-match {
+    background-color: #065f46;
+    color: white;
     text-shadow: 0px 1px 2px rgba(0,0,0,0.5);
+    border-bottom: 3px solid #047857;
 }
 
 .medium-match {
-    background-color: #d35400 !important;
-    color: white !important;
+    background-color: #b45309;
+    color: white;
     text-shadow: 0px 1px 2px rgba(0,0,0,0.5);
+    border-bottom: 3px solid #d97706;
 }
 
 .low-match {
-    background-color: #c0392b !important;
-    color: white !important;
+    background-color: #b91c1c;
+    color: white;
     text-shadow: 0px 1px 2px rgba(0,0,0,0.5);
+    border-bottom: 3px solid #dc2626;
 }
 
 .classification {
     font-style: italic;
     margin-top: 8px;
-    color: #000000;
+    color: #4a5568;
     font-weight: 500;
     font-size: 16px;
 }
 
 /* Analysis section styling */
 .analysis-section {
+    background-color: #f8f9fa;
+    padding: 20px;
+    border-radius: 8px;
     margin-top: 20px;
-    padding-top: 15px;
-    border-top: 2px solid #bbbbbb;
+    border: 1px solid #e2e8f0;
 }
 
-.analysis-section strong {
-    color: #000000;
+.analysis-section * {
+    color: #9d9b9b !important;
+}
+
+.section-header {
+    background-color: #1a5276;
+    color: white;
+    padding: 8px 15px;
+    border-radius: 5px;
+    font-weight: 600;
     font-size: 18px;
-    font-weight: 700;
+    margin-bottom: 15px;
+}
+
+.section-header {
+    color: white !important;
+}
+
+/* Dark section for better contrast */
+.dark-section {
+    background-color: #1e293b;
+    color: white;
+    padding: 20px;
+    border-radius: 8px;
+    margin: 15px 0;
+}
+
+.dark-section p, .dark-section li, .dark-section div, .dark-section span {
+    color: white !important;
+}
+
+.dark-section strong {
+    color: #38bdf8 !important;
 }
 
 /* Button styling */
@@ -128,14 +246,16 @@ h1 {
     color: white;
     border: none;
     border-radius: 4px;
-    padding: 8px 16px;
+    padding: 10px 20px;
     font-weight: bold;
     transition: background-color 0.3s ease;
     text-shadow: 0px 1px 2px rgba(0,0,0,0.3);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
 }
 
 .stButton>button:hover {
     background-color: #0d2b3d;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
 }
 
 /* File uploader styling */
@@ -144,35 +264,48 @@ h1 {
     border-radius: 8px;
     padding: 20px;
     text-align: center;
+    background-color: #f8fafc;
+    transition: all 0.3s ease;
+}
+
+.stFileUploader>div>div:hover {
+    background-color: #e2e8f0;
+    border-color: #0d2b3d;
 }
 
 /* Text area styling */
 .stTextArea>div>div>textarea {
-    border: 1px solid #777777;
+    border: 1px solid #cbd5e1;
     border-radius: 4px;
     padding: 10px;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    color: #000000;
+    color: #1e293b;
     background-color: #ffffff;
     font-size: 16px;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);
 }
 
 /* Expander styling */
 .streamlit-expanderHeader {
-    background-color: #e0e0e0;
+    background-color: #e2e8f0;
     border-radius: 4px;
     padding: 12px;
     font-weight: bold;
-    color: #000000;
+    color: #1a5276;
     font-size: 16px;
+    transition: all 0.3s ease;
+}
+
+.streamlit-expanderHeader:hover {
+    background-color: #cbd5e1;
 }
 
 .streamlit-expanderContent {
     background-color: white;
-    border: 1px solid #bbbbbb;
+    border: 1px solid #cbd5e1;
     border-radius: 0 0 4px 4px;
     padding: 20px;
-    color: #000000;
+    color: #1e293b;
 }
 
 /* Results container styling */
@@ -181,86 +314,72 @@ h1 {
     border-radius: 8px;
     padding: 25px;
     margin-top: 30px;
-    box-shadow: 0 4px 10px rgba(0,0,0,0.2);
-    border: 2px solid #999999;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    border: 1px solid #d1d9e6;
 }
 
-/* Optimization section styling */
-.optimization-section {
-    background-color: #f8f8f8 !important;
-    border-left: 4px solid #1a5276 !important;
-    padding: 20px !important;
-    margin: 20px 0 !important;
-    border-radius: 0 8px 8px 0 !important;
-    color: #000000 !important;
-    font-size: 16px !important;
-    line-height: 1.6 !important;
+.results-container p, .results-container div:not(.dark-section):not(.section-header) {
+    color: #9b9898 !important;
 }
 
-/* Improved readability for pre elements */
-pre {
-    background-color: #f0f0f0;
-    border: 1px solid #999999;
-    border-radius: 4px;
-    padding: 15px;
-    color: #000000;
-    font-size: 15px;
-    line-height: 1.5;
-    white-space: pre-wrap;
-    word-break: break-word;
-    font-family: Consolas, monospace;
-}
-
-/* List items styling */
-li {
-    color: #000000;
-    margin-bottom: 8px;
-    line-height: 1.6;
-    font-size: 16px;
-}
-
-/* Paragraphs */
-p {
-    color: #000000;
-    line-height: 1.6;
-    font-size: 16px;
-    margin-bottom: 10px;
-}
-
-/* Labels */
-label {
-    color: #000000 !important;
-    font-weight: 500 !important;
-    font-size: 16px !important;
-}
-
-/* Text elements */
-span, div {
-    color: #000000;
-}
-
-/* Full Analysis Section */
+/* Analysis box styling */
 .analysis-box {
-    background-color: #f8f8f8 !important;
-    border: 1px solid #999999 !important;
+    background-color: #1e293b !important;
+    border: 1px solid #334155 !important;
     border-radius: 8px !important;
     padding: 20px !important;
     margin: 15px 0 !important;
-    color: #000000 !important;
+    color: #f8fafc !important;
     font-size: 15px !important;
     line-height: 1.6 !important;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1) !important;
 }
 
-.analysis-box h3 {
-    color: #000000;
-    font-size: 18px;
-    margin-bottom: 15px;
-    border-bottom: 1px solid #bbbbbb;
-    padding-bottom: 8px;
+.analysis-box h3, .analysis-box strong {
+    color: #f8fafc !important;
+    font-weight: 600 !important;
 }
 
-.analysis-box p {
+.analysis-box p, .analysis-box li {
+    color: #f1f5f9 !important;
     margin-bottom: 10px;
+}
+
+/* Custom bullet styling */
+.bullet-point {
+    display: flex;
+    align-items: baseline;
+    margin-bottom: 10px;
+}
+
+.bullet {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    background-color: #38bdf8;
+    border-radius: 50%;
+    margin-right: 10px;
+    flex-shrink: 0;
+}
+
+.bullet-content {
+    flex-grow: 1;
+    color: #f1f5f9 !important;
+}
+
+/* Notification box */
+.notification-box {
+    background-color: #0f172a;
+    color: white;
+    padding: 15px;
+    border-radius: 8px;
+    border-left: 5px solid #38bdf8;
+    margin: 20px 0;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+}
+
+.notification-box * {
+    color: white !important;
 }
 
 /* Tab styling */
@@ -269,20 +388,21 @@ span, div {
 }
 
 .stTabs [data-baseweb="tab"] {
-    background-color: #e0e0e0;
+    background-color: #e2e8f0 !important;
     border-radius: 6px 6px 0 0;
     padding: 12px 20px;
     font-weight: 600;
-    color: #000000;
-    border: 1px solid #999999;
+    color: #1e293b;
+    border: 1px solid #cbd5e1;
     border-bottom: none;
     font-size: 16px;
+    transition: all 0.3s ease;
 }
 
 .stTabs [aria-selected="true"] {
-    background-color: white !important;
-    color: #1a5276 !important;
-    border-top: 3px solid #1a5276 !important;
+    background-color: #1a5276 !important;
+    color: white !important;
+    border-top: 3px solid #0d2b3d !important;
 }
 
 /* Footer styling */
@@ -290,38 +410,40 @@ span, div {
     text-align: center;
     padding: 20px 0;
     margin-top: 50px;
-    border-top: 2px solid #bbbbbb;
-    color: #000000;
+    border-top: 2px solid #cbd5e1;
+    background-color: #1e293b;
+    color: white;
     font-size: 16px;
     font-weight: 500;
+    border-radius: 8px;
 }
 
-/* All text elements should have proper contrast */
-p, li, div, span, label {
-    color: #000000 !important;
+.footer * {
+    color: white !important;
 }
 
-/* Improve visibility of all text */
+/* Remove the global red color for all text elements */
+/* Streamlit elements */
 .stMarkdown, .stText {
-    color: #000000 !important;
+    color: #9d9b9b !important;
     font-size: 16px;
+}
+
+/* Default text styling for regular content */
+p, li, div, span, label {
+    color: #9d9b9b !important;
 }
 
 /* Ensure text area has good contrast */
 textarea, .stTextArea textarea {
-    color: #000000 !important;
+    color: #9d9b9b !important;
     background-color: #ffffff !important;
 }
 
 /* Ensure all input fields have good contrast */
 input, select, .stSelectbox select {
-    color: #000000 !important;
+    color: #9d9b9b !important;
     background-color: #ffffff !important;
-}
-
-/* Force all Streamlit elements to have black text */
-.st-emotion-cache-* {
-    color: #000000 !important;
 }
 
 /* Ensure job description textarea has good contrast */
@@ -331,6 +453,6 @@ input, select, .stSelectbox select {
 
 /* Ensure uploaded content has good contrast */
 .uploaded-content {
-    color: #000000 !important;
-    background-color: #f8f8f8 !important;
+    color: #9d9b9b !important;
+    background-color: #f8f9fa !important;
 } 
