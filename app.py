@@ -7,12 +7,21 @@ from sentence_transformers import SentenceTransformer
 import google.generativeai as genai
 import streamlit as st
 import os
+import random
+
+# Set random seed for numpy and Python's random for more consistent results
+random.seed(42)
+np.random.seed(42)
 
 # Initialize session state for API key
 if 'api_key' not in st.session_state:
     # Try to get API key from environment variable or use a placeholder
     st.session_state.api_key = os.environ.get("GEMINI_API_KEY", "")
     st.session_state.api_key_configured = False
+
+# Initialize session state for storing previous calculations to ensure consistency
+if 'previous_calculations' not in st.session_state:
+    st.session_state.previous_calculations = {}
 
 # Initialize Gemini model and embedding model
 model = None
@@ -57,6 +66,105 @@ def upload_and_parse_resume(file):
         return None
     return text
 
+def extract_intelligent_keywords(resume_text):
+    """
+    Extract technical skills, soft skills and experience keywords from resume text
+    using pattern matching and common skill lists
+    
+    Args:
+        resume_text (str): The parsed text from the resume
+        
+    Returns:
+        tuple: (tech_skills, soft_skills, experience_keywords)
+    """
+    # Common technical skills for pattern matching
+    common_tech_skills = [
+        # Programming Languages
+        'python', 'java', 'javascript', 'typescript', 'c\+\+', 'c#', 'ruby', 'php', 'swift', 'kotlin',
+        'go', 'rust', 'scala', 'perl', 'r programming', 'matlab', 'fortran', 'dart', 'lua', 'haskell',
+        
+        # Web Development
+        'html', 'css', 'react', 'angular', 'vue', 'node\.js', 'express', 'django', 'flask', 'spring',
+        'asp\.net', 'laravel', 'ruby on rails', 'jquery', 'bootstrap', 'tailwind', 'webpack', 'gatsby',
+        'next\.js', 'graphql', 'restful api', 'soap', 'xml', 'json', 'ajax',
+        
+        # Databases
+        'sql', 'mysql', 'postgresql', 'mongodb', 'sqlite', 'oracle', 'nosql', 'redis', 'cassandra',
+        'mariadb', 'dynamodb', 'firebase', 'elasticsearch', 'neo4j', 'couchbase', 'ms sql',
+        
+        # Data Science & ML
+        'machine learning', 'deep learning', 'neural networks', 'ai', 'artificial intelligence',
+        'natural language processing', 'nlp', 'computer vision', 'data mining', 'tensorflow',
+        'pytorch', 'keras', 'scikit-learn', 'pandas', 'numpy', 'scipy', 'matplotlib', 'tableau',
+        'power bi', 'statistics', 'regression', 'classification', 'clustering', 'forecasting',
+        
+        # Cloud & DevOps
+        'aws', 'amazon web services', 'azure', 'gcp', 'google cloud', 'devops', 'docker', 'kubernetes',
+        'jenkins', 'terraform', 'ansible', 'puppet', 'chef', 'github actions', 'gitlab ci',
+        'travis ci', 'circleci', 'ci/cd', 'serverless', 'microservices', 'linux', 'unix', 'bash',
+        
+        # Mobile Development
+        'android', 'ios', 'react native', 'flutter', 'xamarin', 'ionic', 'swift', 'objective-c',
+        'mobile app', 'responsive design', 'pwa', 'progressive web app',
+        
+        # Other Technical Skills
+        'git', 'github', 'gitlab', 'bitbucket', 'jira', 'confluence', 'agile', 'scrum', 'kanban',
+        'rest api', 'soap api', 'graphql', 'oauth', 'jwt', 'api gateway', 'microservices',
+        'design patterns', 'oop', 'object-oriented', 'functional programming'
+    ]
+    
+    # Common soft skills for pattern matching
+    common_soft_skills = [
+        'communication', 'teamwork', 'collaboration', 'problem solving', 'critical thinking',
+        'creativity', 'leadership', 'management', 'time management', 'adaptability', 'flexibility',
+        'organization', 'analytical', 'interpersonal', 'attention to detail', 'multitasking',
+        'decision making', 'conflict resolution', 'negotiation', 'presentation', 'public speaking',
+        'customer service', 'emotional intelligence', 'empathy', 'active listening', 'mentoring',
+        'coaching', 'training', 'strategic thinking', 'planning', 'research', 'writing', 'editing',
+        'self-motivated', 'proactive', 'resilience', 'work ethic', 'cultural awareness', 'networking'
+    ]
+    
+    # Common experience patterns
+    experience_patterns = [
+        r'\b(\d+)[\+]?\s+years?\s+(?:of\s+)?experience\b',
+        r'experience\s+(?:of|with|in)?\s+(\d+)[\+]?\s+years?\b',
+        r'\b(senior|junior|lead|principal|staff|experienced|expert)\b',
+        r'\bmanag(?:er|ed|ing|ement)\b', 
+        r'\b(director|head|chief|vp|vice president|executive)\b',
+        r'\b(intern|internship|entry[ -]level|graduate)\b'
+    ]
+    
+    # Normalize text for consistent matching
+    text_lower = resume_text.lower()
+    
+    # Extract technical skills
+    tech_skills = set()
+    for skill in common_tech_skills:
+        if re.search(fr'\b{skill}\b', text_lower):
+            # Format skill name for better display (capitalize first letter of each word)
+            formatted_skill = ' '.join(word.capitalize() for word in skill.replace('\\', '').split())
+            tech_skills.add(formatted_skill)
+    
+    # Extract soft skills
+    soft_skills = set()
+    for skill in common_soft_skills:
+        if re.search(fr'\b{skill}\b', text_lower):
+            # Format skill name for better display (capitalize first letter of each word)
+            formatted_skill = ' '.join(word.capitalize() for word in skill.split())
+            soft_skills.add(formatted_skill)
+    
+    # Extract experience keywords
+    experience_keywords = set()
+    for pattern in experience_patterns:
+        matches = re.finditer(pattern, text_lower)
+        for match in matches:
+            if match.groups():
+                experience_keywords.add(match.group(0))
+            else:
+                experience_keywords.add(match.group(0))
+    
+    return sorted(list(tech_skills)), sorted(list(soft_skills)), sorted(list(experience_keywords))
+
 def calculate_match_score(resume_text, job_description):
     """
     Calculate a match score between a resume and job description using a 3-step process:
@@ -71,6 +179,15 @@ def calculate_match_score(resume_text, job_description):
     Returns:
         tuple: (percentage_match, enhanced_scores, keywords_found, keywords_missing, resume_keywords)
     """
+    # Create a unique key for this resume-job pair to check if we've calculated it before
+    # Use a hash of the texts to create a compact identifier
+    cache_key = hash((resume_text[:1000], job_description[:1000]))  # Use first 1000 chars for efficiency
+    
+    # Check if we've already calculated this exact pair
+    if cache_key in st.session_state.previous_calculations:
+        print("Using cached match score calculation")
+        return st.session_state.previous_calculations[cache_key]
+    
     # Initialize default values in case of errors
     default_score = 0.5
     enhanced_scores = {
@@ -84,6 +201,12 @@ def calculate_match_score(resume_text, job_description):
     keywords_missing = []
     resume_keywords = []
     
+    # Extract intelligent keywords from resume
+    tech_skills, soft_skills, experience_keywords = extract_intelligent_keywords(resume_text)
+    
+    # Initialize resume_keywords with extracted skills
+    resume_keywords = tech_skills + soft_skills + experience_keywords
+    
     # Step 1: BERT-based Embedding Similarity
     try:
         if embedding_model is None:
@@ -91,8 +214,14 @@ def calculate_match_score(resume_text, job_description):
             similarity_score = default_score
         else:
             print("Calculating BERT embedding similarity...")
-            resume_embedding = embedding_model.encode([resume_text])
-            job_embedding = embedding_model.encode([job_description])
+            # Ensure consistent truncation to avoid variable inputs
+            max_token_length = 512
+            truncated_resume = ' '.join(resume_text.split()[:max_token_length])
+            truncated_job = ' '.join(job_description.split()[:max_token_length])
+            
+            # Calculate embeddings with fixed parameters
+            resume_embedding = embedding_model.encode([truncated_resume], normalize_embeddings=True)
+            job_embedding = embedding_model.encode([truncated_job], normalize_embeddings=True)
             similarity_score = np.dot(resume_embedding, job_embedding.T)[0][0]
             
             # Normalize similarity score to [0, 1]
@@ -104,23 +233,22 @@ def calculate_match_score(resume_text, job_description):
     
     # Step 2: TF-IDF/Keyword Matching
     try:
-        # Extract key terms from job description
-        print("Performing TF-IDF/Keyword matching...")
+        # Extract tech skills, soft skills, and experience keywords from job description
+        job_tech_skills, job_soft_skills, job_exp_keywords = extract_intelligent_keywords(job_description)
         
-        # Simple keyword extraction (could be replaced with actual TF-IDF)
-        job_words = set(re.findall(r'\b[A-Za-z][A-Za-z0-9+#\.]{2,}\b', job_description.lower()))
-        resume_words = set(re.findall(r'\b[A-Za-z][A-Za-z0-9+#\.]{2,}\b', resume_text.lower()))
+        # Count matches between job and resume
+        tech_skills_matches = len(set(tech_skills).intersection(set(job_tech_skills)))
+        soft_skills_matches = len(set(soft_skills).intersection(set(job_soft_skills)))
         
-        # Store extracted resume keywords (excluding common words)
-        common_words = {'the', 'and', 'for', 'with', 'this', 'that', 'from', 'have', 'was', 'were', 'are', 'has', 'had', 
-                       'not', 'but', 'what', 'all', 'when', 'can', 'who', 'been', 'will', 'more', 'would', 'their', 
-                       'one', 'other', 'they', 'some', 'than', 'then', 'its', 'also', 'after', 'such', 'most', 'used'}
-        resume_keywords = [word for word in resume_words if word not in common_words and len(word) > 3]
-        resume_keywords.sort()  # Sort alphabetically
+        # Calculate match rates
+        tech_skills_rate = tech_skills_matches / len(job_tech_skills) if job_tech_skills else 0.5
+        soft_skills_rate = soft_skills_matches / len(job_soft_skills) if job_soft_skills else 0.5
         
-        # Calculate keyword match rate
-        if job_words:
-            keyword_match_rate = len(job_words.intersection(resume_words)) / len(job_words)
+        # Combine for overall keyword match rate
+        if job_tech_skills or job_soft_skills:
+            keyword_match_rate = (tech_skills_rate * len(job_tech_skills) + 
+                                 soft_skills_rate * len(job_soft_skills)) / (
+                                 len(job_tech_skills) + len(job_soft_skills))
         else:
             keyword_match_rate = 0.5
             
@@ -132,6 +260,7 @@ def calculate_match_score(resume_text, job_description):
     # Step 3: LLM Refinement using Gemini 
     try:
         print("Performing LLM refinement with Gemini...")
+        # Use a consistent system prompt with clear structure to encourage deterministic responses
         prompt = f"""
         You are a precise resume analysis system that provides objective, factual scoring. 
         Analyze the following resume and job description for match scoring purposes.
@@ -192,14 +321,23 @@ def calculate_match_score(resume_text, job_description):
             "explanation": "<brief explanation of overall match>"
         }}
         
-        Important: 
+        Important instructions for consistent scoring:
         1. Be conservative in your scoring - if something is unclear, score it lower rather than assuming a match
         2. All scores MUST be between 0.0 and 1.0
         3. Base all scoring on objective evidence from the text, not assumptions
         4. For every score component, document the exact evidence you found in the explanation
         5. If a requested skill/requirement isn't mentioned at all in the resume, its match score should be 0.0 
         6. Provide precise lists of actual skills found, not general categories
+        7. Use the same scoring methodology consistently for all resume evaluations
         """
+        
+        # Add generation parameters to increase determinism
+        generation_config = {
+            "temperature": 0.1,  # Very low temperature for more deterministic outputs
+            "top_p": 0.95,
+            "top_k": 40,
+            "max_output_tokens": 2048,
+        }
         
         # Initialize default analysis values
         tech_skills_match = similarity_score
@@ -208,7 +346,8 @@ def calculate_match_score(resume_text, job_description):
         education_match = default_score
         keyword_score = keyword_match_rate  # Use the TF-IDF score as a base
         
-        response = model.generate_content(prompt)
+        # Try to get a consistent response from the LLM
+        response = model.generate_content(prompt, generation_config=generation_config)
         analysis_text = response.text
         
         # Remove any markdown code block markers that might be in the response
@@ -217,34 +356,35 @@ def calculate_match_score(resume_text, job_description):
         # Parse the JSON response
         analysis = json.loads(analysis_text)
         
-        # Extract and validate scores
+        # Extract and validate scores with consistent logic
         tech_skills_match = float(max(0.0, min(1.0, analysis.get("technical_skills_match", default_score))))
         soft_skills_match = float(max(0.0, min(1.0, analysis.get("soft_skills_match", default_score))))
         experience_match = float(max(0.0, min(1.0, analysis.get("experience_match", default_score))))
         education_match = float(max(0.0, min(1.0, analysis.get("education_match", default_score))))
         
-        # Use our TF-IDF score as a factor in the final keyword score
+        # Use our TF-IDF score as a factor in the final keyword score with fixed weights
         llm_keyword_score = float(max(0.0, min(1.0, analysis.get("keyword_score", default_score))))
         keyword_score = (keyword_match_rate * 0.4) + (llm_keyword_score * 0.6)  # Weighted combination
         
-        # Extract skill lists
-        tech_skills_job = analysis.get('technical_skills_job', [])
-        tech_skills_resume = analysis.get('technical_skills_resume', [])
-        soft_skills_job = analysis.get('soft_skills_job', [])
-        soft_skills_resume = analysis.get('soft_skills_resume', [])
+        # Extract skill lists with consistent sorting
+        tech_skills_job = sorted(analysis.get('technical_skills_job', []))
+        tech_skills_resume = sorted(analysis.get('technical_skills_resume', []))
+        soft_skills_job = sorted(analysis.get('soft_skills_job', []))
+        soft_skills_resume = sorted(analysis.get('soft_skills_resume', []))
         
         # Enhance the resume_keywords list with recognized skills from LLM
-        resume_keywords = list(set(resume_keywords + tech_skills_resume + soft_skills_resume))
-        resume_keywords.sort()  # Sort alphabetically
+        # Prioritize skills identified by the LLM as they're more likely to be relevant
+        resume_keywords = sorted(list(set(resume_keywords + tech_skills_resume + soft_skills_resume)))
         
         # Debug logging
         print(f"Technical Skills in Job: {tech_skills_job}")
         print(f"Technical Skills in Resume: {tech_skills_resume}")
         print(f"Soft Skills in Job: {soft_skills_job}")
         print(f"Soft Skills in Resume: {soft_skills_resume}")
+        print(f"Experience Keywords: {experience_keywords}")
         print(f"Explanation: {analysis.get('explanation', 'No explanation provided')}")
         
-        # Adjust scores based on skills presence
+        # Adjust scores based on skills presence using deterministic logic
         has_tech_requirements = len(tech_skills_job) > 0
         has_soft_requirements = len(soft_skills_job) > 0
         
@@ -259,7 +399,7 @@ def calculate_match_score(resume_text, job_description):
         elif len(soft_skills_resume) == 0:
             soft_skills_match = 0.0  # No soft skills in resume
             
-        # Collect keywords for UI display
+        # Collect keywords for UI display with deterministic sorting
         all_job_keywords = set()
         all_job_keywords.update(tech_skills_job)
         all_job_keywords.update(soft_skills_job)
@@ -268,9 +408,9 @@ def calculate_match_score(resume_text, job_description):
         all_resume_keywords.update(tech_skills_resume)
         all_resume_keywords.update(soft_skills_resume)
         
-        # Find matching and missing keywords
-        keywords_found = list(all_job_keywords.intersection(all_resume_keywords))
-        keywords_missing = list(all_job_keywords - all_resume_keywords)
+        # Find matching and missing keywords with consistent sorting
+        keywords_found = sorted(list(all_job_keywords.intersection(all_resume_keywords)))
+        keywords_missing = sorted(list(all_job_keywords - all_resume_keywords))
             
     except Exception as e:
         print(f"Error in AI analysis: {e}")
@@ -278,37 +418,37 @@ def calculate_match_score(resume_text, job_description):
         keyword_score = keyword_match_rate
     
     # Calculate final score with weighted components
-    # Dynamic weight calculation based on job description content
+    # Fixed weights for consistent scoring
     weights = {
         "semantic": 0.20,      # BERT-based embedding similarity
-        "keyword": 0.20,       # TF-IDF + LLM keyword matching (increased weight)
+        "keyword": 0.20,       # TF-IDF + LLM keyword matching
         "tech_skills": 0.25,   # Technical skills
         "soft_skills": 0.10,   # Soft skills
         "experience": 0.15,    # Experience
         "education": 0.10      # Education
     }
     
-    # Adjust weights based on job requirements
+    # Adjust weights based on job requirements with consistent logic
     if 'analysis' in locals():
         has_tech_requirements = len(analysis.get('technical_skills_job', [])) > 0
         has_soft_requirements = len(analysis.get('soft_skills_job', [])) > 0
         
-        # If technical skills aren't emphasized, redistribute weight
+        # If technical skills aren't emphasized, redistribute weight consistently
         if not has_tech_requirements:
             extra = weights["tech_skills"] * 0.8  # Reduce tech weight by 80%
             weights["tech_skills"] *= 0.2         # Keep 20% of original weight
             
-            # Redistribute the extra weight
+            # Redistribute the extra weight with fixed proportions
             weights["semantic"] += extra * 0.4    # 40% to semantic
             weights["keyword"] += extra * 0.3     # 30% to keyword
             weights["experience"] += extra * 0.3  # 30% to experience
         
-        # If soft skills aren't emphasized, redistribute weight
+        # If soft skills aren't emphasized, redistribute weight consistently
         if not has_soft_requirements:
             extra = weights["soft_skills"] * 0.8  # Reduce soft weight by 80%
             weights["soft_skills"] *= 0.2         # Keep 20% of original weight
             
-            # Redistribute the extra weight
+            # Redistribute the extra weight with fixed proportions
             weights["semantic"] += extra * 0.5    # 50% to semantic
             weights["experience"] += extra * 0.5  # 50% to experience
     
@@ -317,7 +457,7 @@ def calculate_match_score(resume_text, job_description):
     for key in weights:
         weights[key] /= total_weight
     
-    # Calculate weighted score
+    # Calculate weighted score with consistent approach
     combined_score = (
         (weights["semantic"] * similarity_score) +
         (weights["keyword"] * keyword_score) +
@@ -330,8 +470,8 @@ def calculate_match_score(resume_text, job_description):
     # Ensure the score is within valid range [0, 1]
     combined_score = max(0.0, min(1.0, combined_score))
     
-    # Calculate percentage match (0-100%)
-    percentage_match = combined_score * 100
+    # Calculate percentage match (0-100%) and round to 2 decimal places for consistency
+    percentage_match = round(combined_score * 100, 2)
     
     # Debug information
     print(f"Final Weights: {weights}")
@@ -347,14 +487,18 @@ def calculate_match_score(resume_text, job_description):
     
     # Update enhanced scores for UI display (removed overall_relevance)
     enhanced_scores = {
-        "technical_skills": tech_skills_match * 100,
-        "soft_skills": soft_skills_match * 100,
-        "experience": experience_match * 100,
-        "education": education_match * 100,
-        "keyword_match": keyword_score * 100
+        "technical_skills": round(tech_skills_match * 100, 1),
+        "soft_skills": round(soft_skills_match * 100, 1),
+        "experience": round(experience_match * 100, 1),
+        "education": round(education_match * 100, 1),
+        "keyword_match": round(keyword_score * 100, 1)
     }
     
-    return percentage_match, enhanced_scores, keywords_found, keywords_missing, resume_keywords
+    # Store the result in session state for consistency in future calculations
+    result = (percentage_match, enhanced_scores, keywords_found, keywords_missing, resume_keywords)
+    st.session_state.previous_calculations[cache_key] = result
+    
+    return result
 
 def optimize_resume(resume_text, job_description):
     prompt = f"""
