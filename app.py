@@ -8,6 +8,15 @@ import google.generativeai as genai
 import streamlit as st
 import os
 import random
+import nltk
+
+# Download necessary NLTK data
+try:
+    nltk.download('punkt', quiet=True)
+    nltk.download('stopwords', quiet=True)
+    nltk.download('wordnet', quiet=True)
+except Exception as e:
+    st.warning(f"Warning: Could not download NLTK data. Some functionality may be limited. Error: {e}")
 
 # Set random seed for numpy and Python's random for more consistent results
 random.seed(42)
