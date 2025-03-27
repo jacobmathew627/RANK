@@ -9,6 +9,14 @@ import streamlit as st
 import os
 import random
 import nltk
+import io
+from fpdf import FPDF
+import base64
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+from reportlab.lib.units import inch
 
 # Download necessary NLTK data
 try:
@@ -511,8 +519,9 @@ def calculate_match_score(resume_text, job_description):
 
 def optimize_resume(resume_text, job_description):
     prompt = f"""
-    You are an AI resume optimization expert. Your task is to optimize the following resume to better align with the job description provided.
-    Ensure that no relevant content is eliminated, and focus on enhancing keyword usage, experience refinement, and clarity.
+    You are an expert resume optimization AI. Your task is to REWRITE and IMPROVE the provided resume to better match the job description. 
+    
+    DO NOT just provide suggestions - directly implement all improvements in a fully rewritten resume.
     
     Resume:
     {resume_text}
@@ -520,13 +529,52 @@ def optimize_resume(resume_text, job_description):
     Job Description:
     {job_description}
     
-    Please provide:
+    Follow these specific instructions:
+    1. Maintain the same general structure and contact information from the original resume
+    2. Add relevant keywords from the job description
+    3. Strengthen achievement statements with metrics where appropriate
+    4. Improve formatting and organization for better readability
+    5. Tailor experience descriptions to highlight relevant skills for the job
+    6. Remove or downplay irrelevant information
+    7. Ensure all content is factual and based only on information in the original resume
+    8. Ensure Accuracy & Authenticity: Do not add fictitious information—only refine and restructure based on the original resume content.
+    9. Replace all '*' bullet points with '•' for better formatting
+    10. DO NOT use asterisks/stars (*) for bullet points - use proper bullet point characters (•) instead
+    11. Keep section headings on their own lines (not combined with content)
+    12. Format the Interests section correctly: "Interests" should be a main section heading, and if there are subsections like "UI/UX", format them as clear subsections with their related interests indented below them
+    13. Pay special attention to formatting the resume exactly as specified, with proper section structure
     
-    1. An optimized version of the resume with improved keyword usage, experience refinement, and clarity.
-    2. Specific, actionable suggestions for further improvement.Also make sure the optimization should be tailored to the job description and resume and a common optimization should not be repeated.
+    Return ONLY the complete optimized resume in a clean, professional format. Do not include explanations, 
+    suggestions, or commentary - just provide the fully optimized resume text ready for use.
     """
-    response = model.generate_content(prompt)
-    return response.text
+    try:
+        response = model.generate_content(prompt)
+        # Replace any remaining asterisks with proper bullet points
+        optimized_text = response.text.replace(' * ', ' • ').replace('* ', '• ')
+        
+        # Ensure sections are properly separated (especially Interests and UI/UX)
+        # Replace sections that might be incorrectly merged
+        section_fixes = [
+            ("Interests • ", "Interests\n• "),
+            ("Interests•", "Interests\n•"),
+            ("UI/UX • ", "UI/UX\n• "),
+            ("UI/UX•", "UI/UX\n•")
+        ]
+        
+        for find, replace in section_fixes:
+            optimized_text = optimized_text.replace(find, replace)
+        
+        # Ensure each section header is on its own line
+        sections = ["Summary", "Education", "Experience", "Skills", "Projects", "Certifications", "Languages", "Interests", "UI/UX"]
+        for section in sections:
+            # Add newline before section if it's not already there
+            pattern = r'([^\n]){0}'.format(section)
+            optimized_text = re.sub(pattern, r'\1\n{0}'.format(section), optimized_text)
+        
+        return optimized_text
+    except Exception as e:
+        print("Error generating optimized resume:", e)
+        return "Error: Unable to generate optimized resume. Please try again."
 
 def analyze_low_matching(resume_text, job_description):
     prompt = f"""
@@ -888,6 +936,394 @@ def batch_processing_ui():
                 </div>
                 """, unsafe_allow_html=True)
 
+def generate_resume_pdf(resume_text):
+    """
+    Converts the optimized resume text to a professionally formatted PDF
+    
+    Args:
+        resume_text (str): The optimized resume text
+        
+    Returns:
+        bytes: PDF file as bytes
+    """
+    try:
+        # Create PDF object with updated FPDF API usage
+        pdf = FPDF()
+        pdf.add_page()
+        
+        # Use standard fonts with correct API usage (no deprecation warnings)
+        pdf.set_font("Helvetica", style="B", size=16)
+        
+        # Enable auto page breaks
+        pdf.set_auto_page_break(auto=True, margin=15)
+        
+        # Add a title with updated API usage
+        pdf.cell(w=0, h=10, txt="Optimized Resume", align='C')
+        pdf.ln(10)
+        
+        # Process each line of the resume
+        if resume_text:
+            lines = resume_text.split('\n')
+            for i, line in enumerate(lines):
+                # Skip empty lines
+                if not line.strip():
+                    pdf.ln(3)
+                    continue
+                
+                # Clean the text to remove problematic characters
+                # More aggressive filtering for better compatibility
+                clean_line = ''
+                for c in line:
+                    if ord(c) < 128:  # Keep only ASCII characters
+                        clean_line += c
+                    else:
+                        clean_line += ' '  # Replace non-ASCII with space
+                
+                # Format section headers
+                if clean_line.strip().isupper() or clean_line.strip().endswith(':'):
+                    pdf.set_font("Helvetica", style="B", size=12)
+                    if i > 1:
+                        pdf.ln(5)
+                    pdf.cell(w=0, h=6, txt=clean_line)
+                    pdf.ln()
+                else:
+                    pdf.set_font("Helvetica", size=10)
+                    # Break long lines into shorter segments to avoid overflow
+                    if len(clean_line) > 80:
+                        segments = [clean_line[i:i+80] for i in range(0, len(clean_line), 80)]
+                        for segment in segments:
+                            pdf.multi_cell(w=0, h=5, txt=segment)
+                    else:
+                        pdf.multi_cell(w=0, h=5, txt=clean_line)
+        
+        # Return the PDF as bytes with updated API
+        return pdf.output()
+    except Exception as e:
+        print(f"Detailed PDF generation error: {str(e)}")
+        
+        # Create a very simple error PDF without any risky operations
+        try:
+            pdf = FPDF()
+            pdf.add_page()
+            pdf.set_font("Helvetica", style="B", size=16)
+            pdf.cell(w=0, h=10, txt="Basic Resume")
+            pdf.ln(10)
+            pdf.set_font("Helvetica", size=12)
+            # Very basic content that should not fail
+            pdf.multi_cell(w=0, h=5, txt="PDF generation failed. Basic version provided.")
+            return pdf.output()
+        except Exception as inner_e:
+            print(f"Even fallback PDF failed: {str(inner_e)}")
+            # If even the fallback fails, raise the exception to trigger HTML download
+            raise
+
+def create_downloadable_html(resume_text):
+    """
+    Creates a downloadable HTML version of the resume
+    
+    Args:
+        resume_text (str): The optimized resume text
+        
+    Returns:
+        str: HTML string with download link
+    """
+    # Convert resume text to HTML format
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Optimized Resume</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; line-height: 1.6; max-width: 800px; margin: 0 auto; padding: 20px; }}
+            h1 {{ text-align: center; color: #2a5298; }}
+            h2 {{ color: #2a5298; border-bottom: 1px solid #ddd; padding-bottom: 5px; }}
+            .section {{ margin-bottom: 20px; }}
+        </style>
+    </head>
+    <body>
+        <h1>Optimized Resume</h1>
+        <div class="content">
+    """
+    
+    # Process each line of the resume
+    lines = resume_text.split('\n')
+    in_paragraph = False
+    
+    for line in lines:
+        # Skip empty lines
+        if not line.strip():
+            if in_paragraph:
+                html_content += "</p>\n"
+                in_paragraph = False
+            continue
+        
+        # Check if line is a section header
+        if line.strip().isupper() or line.strip().endswith(':'):
+            if in_paragraph:
+                html_content += "</p>\n"
+                in_paragraph = False
+            html_content += f"<h2>{line}</h2>\n"
+        else:
+            if not in_paragraph:
+                html_content += "<p>"
+                in_paragraph = True
+            html_content += f"{line}<br>\n"
+    
+    # Close any open paragraph
+    if in_paragraph:
+        html_content += "</p>\n"
+    
+    # Close HTML
+    html_content += """
+        </div>
+    </body>
+    </html>
+    """
+    
+    # Encode HTML for download
+    b64 = base64.b64encode(html_content.encode()).decode()
+    href = f'<a href="data:text/html;base64,{b64}" download="optimized_resume.html">Download as HTML</a>'
+    
+    return href
+
+def generate_resume_pdf_reportlab(resume_text):
+    """
+    Creates a professionally formatted PDF of the resume using ReportLab
+    with enhanced styling for a more aesthetic appearance
+    
+    Args:
+        resume_text (str): The optimized resume text
+        
+    Returns:
+        bytes: PDF file as bytes
+    """
+    try:
+        # Create a buffer to receive PDF data
+        buffer = io.BytesIO()
+        
+        # Create the PDF document with letter size
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=letter,
+            rightMargin=0.5*inch,
+            leftMargin=0.5*inch,
+            topMargin=0.5*inch,
+            bottomMargin=0.5*inch
+        )
+        
+        # Create styles
+        styles = getSampleStyleSheet()
+        
+        # Create custom styles for resume sections
+        name_style = ParagraphStyle(
+            'Name',
+            parent=styles['Heading1'],
+            fontSize=18,
+            alignment=1,  # Center alignment
+            spaceAfter=6,
+            textColor=colors.Color(0.1, 0.3, 0.5),  # Professional dark blue
+            fontName='Helvetica-Bold'
+        )
+        
+        contact_style = ParagraphStyle(
+            'Contact',
+            parent=styles['Normal'],
+            fontSize=10,
+            alignment=1,  # Center alignment
+            spaceAfter=2,
+            leading=14
+        )
+        
+        section_style = ParagraphStyle(
+            'SectionHeader',
+            parent=styles['Heading2'],
+            fontSize=13,
+            textColor=colors.Color(0.1, 0.3, 0.5),  # Professional dark blue
+            spaceAfter=6,
+            spaceBefore=12,
+            borderWidth=0,
+            borderColor=colors.Color(0.1, 0.3, 0.5),
+            borderPadding=5,
+            leading=14,
+            leftIndent=0,
+            fontName='Helvetica-Bold'
+        )
+        
+        subsection_style = ParagraphStyle(
+            'SubSectionHeader',
+            parent=styles['Heading3'],
+            fontSize=11,
+            textColor=colors.Color(0.2, 0.4, 0.6),  # Slightly lighter blue
+            spaceAfter=3,
+            spaceBefore=6,
+            leading=14,
+            leftIndent=0.1*inch,
+            fontName='Helvetica-Bold'
+        )
+        
+        normal_style = ParagraphStyle(
+            'Normal',
+            parent=styles['Normal'],
+            fontSize=10,
+            spaceAfter=3,
+            leading=14,
+            leftIndent=0.2*inch
+        )
+        
+        bullet_style = ParagraphStyle(
+            'Bullet',
+            parent=styles['Normal'],
+            fontSize=10,
+            spaceAfter=3,
+            bulletIndent=0.2*inch,
+            leftIndent=0.4*inch,
+            leading=14
+        )
+        
+        # Container for content elements
+        elements = []
+        
+        # Pre-process the resume text to fix common issues
+        # 1. Replace any remaining asterisks with bullet points
+        resume_text = resume_text.replace('* ', '• ').replace('*•', '•')
+        
+        # 2. Ensure section headers are properly separated
+        section_headers = ['Summary', 'Education', 'Experience', 'Skills', 'Projects', 
+                          'Certifications', 'Languages', 'Interests', 'UI/UX']
+        
+        for header in section_headers:
+            # Ensure there's a newline before each section header
+            pattern = r'([^\n])(' + header + r')(\s*?\n)'
+            resume_text = re.sub(pattern, r'\1\n\2\3', resume_text)
+        
+        # Process each line of the resume
+        if resume_text:
+            # Split into lines and clean them
+            lines = resume_text.split('\n')
+            clean_lines = []
+            
+            for line in lines:
+                line = line.strip()
+                if line:
+                    # Remove markdown formatting and ensure proper bullet points
+                    clean_line = line.replace('**', '').replace('* ', '• ')
+                    clean_lines.append(clean_line)
+            
+            # Detect structure based on content patterns
+            is_first_section = True
+            current_section = ""
+            
+            i = 0
+            while i < len(clean_lines):
+                line = clean_lines[i]
+                
+                # Skip empty lines
+                if not line:
+                    i += 1
+                    continue
+                
+                # Handle the name (first line)
+                if i == 0:
+                    elements.append(Paragraph(line, name_style))
+                    i += 1
+                    continue
+                
+                # Handle contact info (lines after name until first section header)
+                if is_first_section:
+                    # Check if this line is a section header
+                    is_section_header = False
+                    for header in section_headers:
+                        if line.lower().strip() == header.lower():
+                            is_section_header = True
+                            is_first_section = False
+                            current_section = header
+                            break
+                    
+                    if not is_section_header:
+                        # This is still contact info
+                        elements.append(Paragraph(line, contact_style))
+                        i += 1
+                        continue
+                
+                # Handle section headers
+                is_section_header = False
+                for header in section_headers:
+                    if line.lower().strip() == header.lower():
+                        is_section_header = True
+                        current_section = header
+                        
+                        # Add section header with proper styling
+                        elements.append(Paragraph(line, section_style))
+                        
+                        # Add horizontal line under section headers
+                        elements.append(Spacer(1, 2))
+                        elements.append(HRFlowable(
+                            width="100%",
+                            thickness=1,
+                            color=colors.Color(0.1, 0.3, 0.5),
+                            spaceBefore=0,
+                            spaceAfter=6
+                        ))
+                        
+                        i += 1
+                        break
+                
+                if is_section_header:
+                    continue
+                
+                # Handle subsections (like UI/UX under Interests)
+                # For UI/UX specifically, check if we're in the Interests section
+                if current_section.lower() == "interests" and line.lower().strip() == "ui/ux":
+                    elements.append(Paragraph(line, subsection_style))
+                    i += 1
+                    continue
+                
+                # Handle bullet points
+                if line.startswith('•'):
+                    # Fix any double bullets
+                    if line.startswith('••'):
+                        line = '•' + line[2:]
+                    
+                    # Clean up spaces after bullet
+                    if line.startswith('• '):
+                        content = line[2:]
+                    else:
+                        content = line[1:]
+                    
+                    # Create properly formatted bullet point
+                    bullet_text = '• ' + content
+                    elements.append(Paragraph(bullet_text, bullet_style))
+                    i += 1
+                    continue
+                
+                # Handle normal text lines
+                # Check if this might be a subsection header (followed by bullets)
+                if i + 1 < len(clean_lines) and clean_lines[i + 1].startswith('•'):
+                    elements.append(Paragraph(line, subsection_style))
+                else:
+                    elements.append(Paragraph(line, normal_style))
+                
+                i += 1
+        
+        # Build the PDF
+        doc.build(elements)
+        
+        # Get the value from the buffer
+        pdf_data = buffer.getvalue()
+        buffer.close()
+        
+        return pdf_data
+    
+    except Exception as e:
+        print(f"ReportLab PDF generation error: {str(e)}")
+        # If ReportLab fails, try the basic FPDF approach as fallback
+        try:
+            return generate_resume_pdf(resume_text)
+        except Exception as inner_e:
+            print(f"Fallback PDF generation also failed: {str(inner_e)}")
+            # If even the fallback fails, raise the exception to trigger the HTML fallback
+            raise
+
 def single_resume_optimization_ui():
     # Add app header with proper styling for single resume optimization
     st.markdown("""
@@ -900,19 +1336,26 @@ def single_resume_optimization_ui():
     uploaded_file = st.file_uploader("Upload a resume", type=["pdf", "docx"], key="single_resume")
     job_description = st.text_area("Paste the job description here", key="single_job_description", height=200)
     
+    # Initialize session state for optimized resume if not already present
+    if 'optimized_resume' not in st.session_state:
+        st.session_state.optimized_resume = None
+    if 'resume_analyzed' not in st.session_state:
+        st.session_state.resume_analyzed = False
+    
     if uploaded_file and job_description:
         resume_text = upload_and_parse_resume(uploaded_file)
         if resume_text:
             # Display a processing message
-            with st.spinner("Analyzing your resume and generating optimization suggestions..."):
+            with st.spinner("Analyzing your resume..."):
                 # Calculate match scores
                 percentage_match, enhanced_scores, keywords_found, keywords_missing, resume_keywords = calculate_match_score(resume_text, job_description)
                 
-                # Get analysis and optimized resume upfront without requiring button clicks
+                # Get analysis
                 reasons, suggestions, full_response = analyze_low_matching(resume_text, job_description)
                 formatted_response = format_analysis(full_response)
                 
-                optimized_resume = optimize_resume(resume_text, job_description)
+                # Mark as analyzed
+                st.session_state.resume_analyzed = True
                 
                 # Determine classification based on score
                 if percentage_match > 80:
@@ -982,23 +1425,62 @@ def single_resume_optimization_ui():
             </div>
             """, unsafe_allow_html=True)
             
-            # Display optimized resume automatically (no need for button click)
-            st.markdown('<div class="section-header">Optimized Resume</div>', unsafe_allow_html=True)
+            # Add Generate Optimized Resume button
+            if st.button("Generate Optimized Resume"):
+                with st.spinner("Generating optimized resume..."):
+                    optimized_resume = optimize_resume(resume_text, job_description)
+                    st.session_state.optimized_resume = optimized_resume
             
-            # Add notification about optimized resume
-            st.markdown("""
-            <div class="notification-box">
-                This AI-optimized version of your resume has been tailored to better match the job description.
-                Key improvements include enhanced keyword matching and clearer presentation of relevant skills.
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # Display the optimized resume with improved styling
-            st.markdown(f"""
-            <div class="dark-section">
-                {optimized_resume}
-            </div>
-            """, unsafe_allow_html=True)
+            # Display optimized resume if available
+            if st.session_state.optimized_resume:
+                st.markdown('<div class="section-header">Optimized Resume</div>', unsafe_allow_html=True)
+                
+                # Add notification about optimized resume
+                st.markdown("""
+                <div class="notification-box">
+                    This AI-optimized version of your resume has been tailored to better match the job description.
+                    Key improvements include enhanced keyword matching and clearer presentation of relevant skills.
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Add download buttons for optimized resume
+                download_col1, download_col2, download_col3 = st.columns([2, 1, 1])
+                
+                with download_col2:
+                    # Convert optimized resume to a downloadable format (text)
+                    resume_txt = st.session_state.optimized_resume
+                    st.download_button(
+                        label="Download as TXT",
+                        data=resume_txt,
+                        file_name="optimized_resume.txt",
+                        mime="text/plain"
+                    )
+                
+                with download_col3:
+                    # Try both PDF options: ReportLab first, then HTML fallback
+                    try:
+                        pdf_bytes = generate_resume_pdf_reportlab(st.session_state.optimized_resume)
+                        st.download_button(
+                            label="Download as PDF",
+                            data=pdf_bytes,
+                            file_name="optimized_resume.pdf",
+                            mime="application/pdf"
+                        )
+                    except Exception as e:
+                        # If PDF generation fails, provide the HTML download option
+                        st.error("PDF generation failed. Using HTML option instead.")
+                        print(f"PDF error details: {str(e)}")
+                        # Add HTML download option as fallback
+                        html_download = create_downloadable_html(st.session_state.optimized_resume)
+                        st.markdown("<div style='text-align: center;'><strong>HTML Download:</strong></div>", unsafe_allow_html=True)
+                        st.markdown(html_download, unsafe_allow_html=True)
+                
+                # Display the optimized resume with improved styling
+                st.markdown(f"""
+                <div class="dark-section">
+                    {st.session_state.optimized_resume}
+                </div>
+                """, unsafe_allow_html=True)
             
             st.markdown("</div>", unsafe_allow_html=True)  # Close results container
             
@@ -1028,15 +1510,22 @@ def settings_ui():
         "Gemini API Key", 
         value=st.session_state.api_key,
         type="password",
+        key="api_key_input",
         help="Enter your Gemini API key. Get one at https://ai.google.dev/"
     )
     
     # Save API key button
-    if st.button("Save API Key"):
+    if st.button("Save API Key", key="save_api_key_btn"):
         if api_key:
+            # Store the API key in session state
             st.session_state.api_key = api_key
+            
+            # Initialize models with the new API key
             if initialize_models():
+                st.session_state.api_key_configured = True
                 st.success("✅ API key saved and validated successfully!")
+                # Force a rerun to update the UI immediately
+                st.rerun()
             else:
                 st.error("❌ API key could not be validated. Please check your key and try again.")
         else:
@@ -1133,7 +1622,7 @@ def main_ui():
     # Add footer with custom styling
     st.markdown("""
     <div class="footer">
-        Resume Rank & Optimization Tool © 2023 | Powered by AI
+        Resume Rank & Optimization Tool © 2025 | Powered by AI
     </div>
     """, unsafe_allow_html=True)
 
