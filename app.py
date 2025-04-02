@@ -18,13 +18,32 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.lib.units import inch
 
-# Download necessary NLTK data
-try:
-    nltk.download('punkt', quiet=True)
-    nltk.download('stopwords', quiet=True)
-    nltk.download('wordnet', quiet=True)
-except Exception as e:
-    st.warning(f"Warning: Could not download NLTK data. Some functionality may be limited. Error: {e}")
+# Function to check and download NLTK data only if needed
+def download_nltk_data():
+    nltk_data_path = os.path.join(os.path.expanduser("~"), "nltk_data")
+    required_packages = ['punkt', 'stopwords', 'wordnet']
+    missing_packages = []
+    
+    # Check if packages are already downloaded
+    for package in required_packages:
+        if not os.path.isdir(os.path.join(nltk_data_path, package)):
+            missing_packages.append(package)
+    
+    # Only download missing packages
+    if missing_packages:
+        try:
+            with st.spinner(f"Downloading required NLTK data ({', '.join(missing_packages)})..."):
+                for package in missing_packages:
+                    nltk.download(package, quiet=True)
+            return True
+        except Exception as e:
+            st.warning(f"Warning: Could not download NLTK data. Some functionality may be limited. Error: {e}")
+            return False
+    return True
+
+# Check if NLTK data is downloaded only once per session
+if 'nltk_data_downloaded' not in st.session_state:
+    st.session_state.nltk_data_downloaded = download_nltk_data()
 
 # Set random seed for numpy and Python's random for more consistent results
 random.seed(42)
@@ -51,12 +70,14 @@ def initialize_models():
     try:
         # Configure Gemini API with the key from session state
         if st.session_state.api_key:
-            genai.configure(api_key=st.session_state.api_key)
-            model = genai.GenerativeModel('gemini-1.5-flash')
-            st.session_state.api_key_configured = True
+            with st.spinner("Configuring Gemini API..."):
+                genai.configure(api_key=st.session_state.api_key)
+                model = genai.GenerativeModel('gemini-1.5-flash')
+                st.session_state.api_key_configured = True
             
             # Initialize Sentence Transformer model for embeddings
-            embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+            with st.spinner("Loading embedding model (this may take a moment)..."):
+                embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
             
             return True
     except Exception as e:
@@ -66,23 +87,60 @@ def initialize_models():
     
     return False
 
+def get_models():
+    """Get or initialize AI models with the configured API key"""
+    global model, embedding_model
+    
+    if model is None or embedding_model is None:
+        initialize_models()
+    
+    return model, embedding_model
+
 # Initialize models on startup if API key is available
-if st.session_state.api_key:
-    initialize_models()
+if st.session_state.api_key and 'models_initialized' not in st.session_state:
+    # Don't auto-initialize models on startup to speed up initial load
+    st.session_state.models_initialized = False
 
+@st.cache_data(ttl=3600)  # Cache for 1 hour
 def upload_and_parse_resume(file):
-    if file.type == "application/pdf":
-        reader = PyPDF2.PdfReader(file)
-        text = ""
-        for page in reader.pages:
-            text += page.extract_text()
-    elif file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-        doc = docx.Document(file)
-        text = "\n".join([para.text for para in doc.paragraphs])
-    else:
+    """
+    Parse resume file (PDF or DOCX) and extract text
+    
+    Args:
+        file: The uploaded file object from Streamlit
+        
+    Returns:
+        str: Extracted text from the resume or None if parsing failed
+    """
+    try:
+        if file.type == "application/pdf":
+            reader = PyPDF2.PdfReader(file)
+            text = ""
+            total_pages = len(reader.pages)
+            
+            # Only process first 20 pages to avoid excessive memory use
+            max_pages = min(total_pages, 20)
+            for i in range(max_pages):
+                page_text = reader.pages[i].extract_text() or ""
+                text += page_text
+                
+            if total_pages > max_pages:
+                text += f"\n[Note: {total_pages-max_pages} additional pages not processed]"
+                
+        elif file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+            doc = docx.Document(file)
+            text = "\n".join([para.text for para in doc.paragraphs])
+        else:
+            return None
+            
+        # Clean the text to remove excessive whitespace
+        text = re.sub(r'\s+', ' ', text).strip()
+        return text
+    except Exception as e:
+        print(f"Error parsing resume: {e}")
         return None
-    return text
 
+@st.cache_data(ttl=3600)  # Cache for 1 hour
 def extract_intelligent_keywords(resume_text):
     """
     Extract technical skills, soft skills and experience keywords from resume text
@@ -94,6 +152,9 @@ def extract_intelligent_keywords(resume_text):
     Returns:
         tuple: (tech_skills, soft_skills, experience_keywords)
     """
+    if not resume_text:
+        return [], [], []
+        
     # Common technical skills for pattern matching
     common_tech_skills = [
         # Programming Languages
@@ -180,6 +241,12 @@ def extract_intelligent_keywords(resume_text):
             else:
                 experience_keywords.add(match.group(0))
     
+    # Release memory
+    del common_tech_skills
+    del common_soft_skills
+    del experience_patterns
+    del text_lower
+    
     return sorted(list(tech_skills)), sorted(list(soft_skills)), sorted(list(experience_keywords))
 
 def calculate_match_score(resume_text, job_description):
@@ -204,6 +271,19 @@ def calculate_match_score(resume_text, job_description):
     if cache_key in st.session_state.previous_calculations:
         print("Using cached match score calculation")
         return st.session_state.previous_calculations[cache_key]
+    
+    # Get the AI models
+    model, embedding_model = get_models()
+    
+    if model is None or embedding_model is None:
+        st.error("Error: AI models are not initialized. Please check your API key configuration.")
+        return 50.0, {
+            "technical_skills": 50.0,
+            "soft_skills": 50.0,
+            "experience": 50.0,
+            "education": 50.0,
+            "keyword_match": 50.0
+        }, [], [], []
     
     # Initialize default values in case of errors
     default_score = 0.5
@@ -518,6 +598,13 @@ def calculate_match_score(resume_text, job_description):
     return result
 
 def optimize_resume(resume_text, job_description):
+    # Get the AI models
+    model, _ = get_models()
+    
+    if model is None:
+        st.error("Error: AI model is not initialized. Please check your API key configuration.")
+        return "Error: Unable to generate optimized resume. Please check your API key configuration."
+
     prompt = f"""
     You are an expert resume optimization AI. Your task is to REWRITE and IMPROVE the provided resume to better match the job description. 
     
@@ -548,35 +635,46 @@ def optimize_resume(resume_text, job_description):
     suggestions, or commentary - just provide the fully optimized resume text ready for use.
     """
     try:
-        response = model.generate_content(prompt)
-        # Replace any remaining asterisks with proper bullet points
-        optimized_text = response.text.replace(' * ', ' • ').replace('* ', '• ')
-        
-        # Ensure sections are properly separated (especially Interests and UI/UX)
-        # Replace sections that might be incorrectly merged
-        section_fixes = [
-            ("Interests • ", "Interests\n• "),
-            ("Interests•", "Interests\n•"),
-            ("UI/UX • ", "UI/UX\n• "),
-            ("UI/UX•", "UI/UX\n•")
-        ]
-        
-        for find, replace in section_fixes:
-            optimized_text = optimized_text.replace(find, replace)
-        
-        # Ensure each section header is on its own line
-        sections = ["Summary", "Education", "Experience", "Skills", "Projects", "Certifications", "Languages", "Interests", "UI/UX"]
-        for section in sections:
-            # Add newline before section if it's not already there
-            pattern = r'([^\n]){0}'.format(section)
-            optimized_text = re.sub(pattern, r'\1\n{0}'.format(section), optimized_text)
-        
-        return optimized_text
+        with st.spinner("Generating optimized resume..."):
+            response = model.generate_content(prompt)
+            # Replace any remaining asterisks with proper bullet points
+            optimized_text = response.text.replace(' * ', ' • ').replace('* ', '• ')
+            
+            # Ensure sections are properly separated (especially Interests and UI/UX)
+            # Replace sections that might be incorrectly merged
+            section_fixes = [
+                ("Interests • ", "Interests\n• "),
+                ("Interests•", "Interests\n•"),
+                ("UI/UX • ", "UI/UX\n• "),
+                ("UI/UX•", "UI/UX\n•")
+            ]
+            
+            for find, replace in section_fixes:
+                optimized_text = optimized_text.replace(find, replace)
+            
+            # Ensure each section header is on its own line
+            sections = ["Summary", "Education", "Experience", "Skills", "Projects", "Certifications", "Languages", "Interests", "UI/UX"]
+            for section in sections:
+                # Add newline before section if it's not already there
+                pattern = r'([^\n]){0}'.format(section)
+                optimized_text = re.sub(pattern, r'\1\n{0}'.format(section), optimized_text)
+            
+            # Free up memory
+            release_memory()
+            
+            return optimized_text
     except Exception as e:
         print("Error generating optimized resume:", e)
         return "Error: Unable to generate optimized resume. Please try again."
 
 def analyze_low_matching(resume_text, job_description):
+    # Get the AI models
+    model, _ = get_models()
+    
+    if model is None:
+        st.error("Error: AI model is not initialized. Please check your API key configuration.")
+        return ["Error: AI model not initialized."], ["Please check your API key configuration."], "Error: Unable to analyze resume."
+
     prompt = f"""
     As an expert resume analyst, provide a comprehensive analysis of how this specific resume aligns with the job description.
     You must thoroughly understand both the resume content and the job requirements before providing feedback.
@@ -637,70 +735,74 @@ def analyze_low_matching(resume_text, job_description):
     Focus on providing insightful, personalized analysis that shows you understand this specific resume and job.
     """
     try:
-        response = model.generate_content(prompt)
-        # Store the full API response for display in the UI
-        full_response = response.text
-        
-        # Extract sections for structured display
-        reasons = []
-        suggestions = []
-        
-        # Extract different sections based on headers
-        assessment_section = False
-        reasons_section = False
-        recommendations_section = False
-        keywords_section = False
-        
-        for line in response.text.split('\n'):
-            line = line.strip()
-            if not line:
-                continue
-                
-            if "RESUME ASSESSMENT:" in line.upper():
-                assessment_section = True
-                reasons_section = False
-                recommendations_section = False
-                keywords_section = False
-                continue
-                
-            if "DETAILED REASONS:" in line.upper() or "REASONS:" in line.upper():
-                assessment_section = False
-                reasons_section = True
-                recommendations_section = False
-                keywords_section = False
-                continue
+        with st.spinner("Analyzing resume..."):
+            response = model.generate_content(prompt)
+            # Store the full API response for display in the UI
+            full_response = response.text
             
-            if "ACTIONABLE RECOMMENDATIONS:" in line.upper() or "SUGGESTIONS:" in line.upper() or "RECOMMENDATIONS:" in line.upper():
-                assessment_section = False
-                reasons_section = False
-                recommendations_section = True
-                keywords_section = False
-                continue
+            # Extract sections for structured display
+            reasons = []
+            suggestions = []
+            
+            # Extract different sections based on headers
+            assessment_section = False
+            reasons_section = False
+            recommendations_section = False
+            keywords_section = False
+            
+            for line in response.text.split('\n'):
+                line = line.strip()
+                if not line:
+                    continue
+                    
+                if "RESUME ASSESSMENT:" in line.upper():
+                    assessment_section = True
+                    reasons_section = False
+                    recommendations_section = False
+                    keywords_section = False
+                    continue
+                    
+                if "DETAILED REASONS:" in line.upper() or "REASONS:" in line.upper():
+                    assessment_section = False
+                    reasons_section = True
+                    recommendations_section = False
+                    keywords_section = False
+                    continue
                 
-            if "TAILORED KEYWORDS" in line.upper():
-                assessment_section = False
-                reasons_section = False
-                recommendations_section = False
-                keywords_section = True
-                continue
+                if "ACTIONABLE RECOMMENDATIONS:" in line.upper() or "SUGGESTIONS:" in line.upper() or "RECOMMENDATIONS:" in line.upper():
+                    assessment_section = False
+                    reasons_section = False
+                    recommendations_section = True
+                    keywords_section = False
+                    continue
+                    
+                if "TAILORED KEYWORDS" in line.upper():
+                    assessment_section = False
+                    reasons_section = False
+                    recommendations_section = False
+                    keywords_section = True
+                    continue
+                
+                # Extract content from each section
+                if reasons_section and line.startswith('-'):
+                    reasons.append(line.lstrip('- '))
+                
+                if recommendations_section and line.startswith('-'):
+                    suggestions.append(line.lstrip('- '))
             
-            # Extract content from each section
-            if reasons_section and line.startswith('-'):
-                reasons.append(line.lstrip('- '))
-            
-            if recommendations_section and line.startswith('-'):
-                suggestions.append(line.lstrip('- '))
-        
-        # Fallback content if API response is empty or parsing failed
-        if not reasons:
-            reasons = ["The resume lacks specific keywords from the job description.", 
-                       "The experience section does not align well with the job requirements.",
-                       "The resume structure may not be optimized for ATS systems."]
-        if not suggestions:
-            suggestions = ["Consider adding more relevant keywords from the job description.", 
-                           "Expand on your experience to better match the job requirements.",
-                           "Quantify your achievements with specific metrics and outcomes.",
-                           "Refine formatting for better ATS compatibility."]
+            # Fallback content if API response is empty or parsing failed
+            if not reasons:
+                reasons = ["The resume lacks specific keywords from the job description.", 
+                        "The experience section does not align well with the job requirements.",
+                        "The resume structure may not be optimized for ATS systems."]
+            if not suggestions:
+                suggestions = ["Consider adding more relevant keywords from the job description.", 
+                            "Expand on your experience to better match the job requirements.",
+                            "Quantify your achievements with specific metrics and outcomes.",
+                            "Refine formatting for better ATS compatibility."]
+                
+            # Free up memory
+            release_memory()
         
     except Exception as e:
         print("Error during API call:", e)
@@ -752,9 +854,31 @@ def format_analysis(text):
     return ''.join(formatted_paragraphs)
 
 def load_css():
-    # Load external CSS file
-    with open('styles.css') as f:
-        st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
+    """Load external CSS file with minification and caching"""
+    # Check if CSS is already loaded in this session
+    if 'css_loaded' in st.session_state:
+        return
+        
+    try:
+        with open('styles.css') as f:
+            css = f.read()
+            # Basic minification - remove unnecessary whitespace and comments
+            css = re.sub(r'\s+', ' ', css)
+            css = re.sub(r'/\*.*?\*/', '', css)
+            st.markdown(f'<style>{css}</style>', unsafe_allow_html=True)
+            # Mark CSS as loaded for this session
+            st.session_state.css_loaded = True
+    except Exception as e:
+        st.warning(f"Could not load external CSS: {e}")
+        # Fall back to inline CSS
+        st.markdown("""
+        <style>
+        .app-header {background: linear-gradient(to right, #1e3c72, #2a5298); color: white; padding: 20px; text-align: center; border-radius: 10px;}
+        .app-title {font-size: 2.5rem; font-weight: 700; margin-bottom: 10px;}
+        .dark-section {background-color: #1e1e1e; color: white; padding: 15px; border-radius: 5px; margin: 10px 0;}
+        .section-header {background-color: #2a5298; color: white; padding: 10px; border-radius: 5px; margin: 15px 0 10px 0; font-weight: 600;}
+        </style>
+        """, unsafe_allow_html=True)
 
 def batch_processing_ui():
     # Add app header with proper styling for batch processing
@@ -1565,21 +1689,14 @@ def settings_ui():
             help="Score threshold for high matches"
         )
 
+def release_memory():
+    """Release memory explicitly for large objects"""
+    import gc
+    gc.collect()
+
 def main_ui():
     # Load external CSS
-    try:
-        load_css()
-    except Exception as e:
-        st.warning(f"Could not load external CSS: {e}")
-        # Fall back to inline CSS
-        st.markdown("""
-        <style>
-        .app-header {background: linear-gradient(to right, #1e3c72, #2a5298); color: white; padding: 20px; text-align: center; border-radius: 10px;}
-        .app-title {font-size: 2.5rem; font-weight: 700; margin-bottom: 10px;}
-        .dark-section {background-color: #1e1e1e; color: white; padding: 15px; border-radius: 5px; margin: 10px 0;}
-        .section-header {background-color: #2a5298; color: white; padding: 10px; border-radius: 5px; margin: 15px 0 10px 0; font-weight: 600;}
-        </style>
-        """, unsafe_allow_html=True)
+    load_css()
     
     # Check if API key is configured
     if not st.session_state.api_key_configured:
@@ -1604,20 +1721,37 @@ def main_ui():
     # Create tabs with custom styling
     tab1, tab2, tab3 = st.tabs(["Batch Processing", "Single Resume Optimization", "Settings"])
     
+    # Initialize tab state if not already set
+    if 'active_tab' not in st.session_state:
+        st.session_state.active_tab = 'settings'
+    
     with tab1:
         if st.session_state.api_key_configured:
-            batch_processing_ui()
+            # Only render batch processing UI when this tab is selected
+            if tab1._active or st.session_state.active_tab == 'batch':
+                st.session_state.active_tab = 'batch'
+                batch_processing_ui()
+                # Release memory after processing
+                release_memory()
         else:
             st.info("Please configure your Gemini API key in the Settings tab before using this feature.")
     
     with tab2:
         if st.session_state.api_key_configured:
-            single_resume_optimization_ui()
+            # Only render single resume optimization UI when this tab is selected
+            if tab2._active or st.session_state.active_tab == 'single':
+                st.session_state.active_tab = 'single'
+                single_resume_optimization_ui()
+                # Release memory after processing
+                release_memory()
         else:
             st.info("Please configure your Gemini API key in the Settings tab before using this feature.")
     
     with tab3:
-        settings_ui()
+        # Always render settings UI
+        if tab3._active or st.session_state.active_tab == 'settings':
+            st.session_state.active_tab = 'settings'
+            settings_ui()
     
     # Add footer with custom styling
     st.markdown("""
